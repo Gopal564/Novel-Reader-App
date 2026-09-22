@@ -190,34 +190,46 @@
 
     /* Sentence-wise Mode: Full sentence highlight */
     body.mode-sentence .sentence-span.active-speech {
-      background-color: var(--highlight-bg);
-      color: var(--highlight-text);
-      font-weight: 600;
-      box-shadow: 0 0 0 2px var(--highlight-bg);
+      background-color: var(--highlight-bg) !important;
+      color: var(--highlight-text) !important;
+      font-weight: 600 !important;
+      box-shadow: 0 0 0 2px var(--highlight-bg) !important;
+      border-radius: 4px;
+    }
+    body.mode-sentence .word-span.active-word {
+      background: transparent !important;
+      color: inherit !important;
+      font-weight: inherit !important;
+      box-shadow: none !important;
     }
 
     /* Word-wise Mode: Subtle sentence lane guide */
     body.mode-word .sentence-span.active-speech {
-      background-color: rgba(99, 102, 241, 0.09);
-      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
-      border-radius: 6px;
+      background-color: rgba(99, 102, 241, 0.12) !important;
+      color: inherit !important;
+      font-weight: normal !important;
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.22) !important;
+      border-radius: 6px !important;
     }
 
     .word-span {
       display: inline;
-      border-radius: 3px;
+      border-radius: 4px;
       padding: 1px 2px;
-      margin: 0 -1px;
-      transition: background-color 0.12s ease, color 0.12s ease;
+      margin: 0;
+      transition: background-color 0.08s ease, color 0.08s ease;
     }
 
     /* Word-wise Mode: Active word karaoke pill */
     body.mode-word .word-span.active-word {
-      background-color: var(--accent-color);
+      background-color: var(--accent-color) !important;
       color: #ffffff !important;
-      font-weight: 700;
-      border-radius: 4px;
-      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
+      font-weight: 700 !important;
+      border-radius: 5px !important;
+      padding: 2px 6px !important;
+      margin: 0 1px !important;
+      box-shadow: 0 2px 10px rgba(79, 70, 229, 0.5) !important;
+      display: inline-block !important;
     }
 
     /* Bottom TTS Dock */
@@ -438,6 +450,34 @@
       border-color: var(--accent-color);
     }
 
+    .mode-pill {
+      flex: 1;
+      border: 1.5px solid var(--surface-border);
+      background: var(--surface-color);
+      color: var(--text-color);
+      border-radius: 10px;
+      padding: 10px 8px;
+      text-align: center;
+      font-size: 0.84rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: sans-serif;
+      transition: all 0.15s ease;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      touch-action: manipulation;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .mode-pill.active {
+      border-color: var(--accent-color);
+      background: rgba(79, 70, 229, 0.15);
+      color: var(--accent-color);
+      box-shadow: 0 0 0 1.5px var(--accent-color);
+    }
+
     .color-picker-row {
       display: flex;
       gap: 14px;
@@ -601,6 +641,7 @@
       <span class="header-chapter-title" id="chapter-title-el">Chapter 1</span>
     </div>
     <div class="header-actions">
+      <button class="icon-btn" id="header-mode-toggle" title="Reading Mode: Sentence-wise / Word-wise" style="font-size: 0.88rem; font-weight: 700; padding: 0 8px; min-width: 38px;">📄</button>
       <button class="icon-btn" id="open-chapters-btn" title="Chapters">📚</button>
       <button class="icon-btn" id="open-audio-btn" title="TTS Voices">🎙️</button>
       <button class="icon-btn" id="open-settings-btn" title="Appearance">Aa</button>
@@ -755,10 +796,10 @@
             <strong id="reading-mode-label" style="color: var(--accent-color);">Sentence-wise</strong>
           </div>
           <div style="display: flex; gap: 8px; margin-top: 8px;">
-            <button type="button" class="theme-pill active" id="btn-mode-sentence" style="flex: 1; padding: 10px 8px; text-align: center; font-weight: 600; font-size: 0.82rem; cursor: pointer;">
+            <button type="button" class="mode-pill active" id="btn-mode-sentence" onclick="setReadingMode('sentence')">
               📄 Sentence-wise
             </button>
-            <button type="button" class="theme-pill" id="btn-mode-word" style="flex: 1; padding: 10px 8px; text-align: center; font-weight: 600; font-size: 0.82rem; cursor: pointer;">
+            <button type="button" class="mode-pill" id="btn-mode-word" onclick="setReadingMode('word')">
               🔤 Word-wise
             </button>
           </div>
@@ -852,7 +893,8 @@
     let autoAdvanceTimeout = null;
     let readingMode = localStorage.getItem('reading_mode') || 'sentence';
     let currentActiveWordEl = null;
-    let wordTimer = null;
+    let currentWordIndex = 0;
+    let wordPacerTimer = null;
     let lastBoundaryTime = 0;
 
     let ttsSpeed = 1.0;
@@ -893,15 +935,19 @@
     const btnModeSentence = document.getElementById('btn-mode-sentence');
     const btnModeWord = document.getElementById('btn-mode-word');
     const readingModeLabel = document.getElementById('reading-mode-label');
+    const headerModeToggle = document.getElementById('header-mode-toggle');
 
     function setReadingMode(mode) {
-      readingMode = mode;
-      localStorage.setItem('reading_mode', mode);
+      readingMode = mode === 'word' ? 'word' : 'sentence';
+      try {
+        localStorage.setItem('reading_mode', readingMode);
+      } catch (e) {}
+
       document.body.classList.remove('mode-sentence', 'mode-word');
-      document.body.classList.add(`mode-${mode}`);
+      document.body.classList.add(`mode-${readingMode}`);
 
       if (btnModeSentence && btnModeWord) {
-        if (mode === 'word') {
+        if (readingMode === 'word') {
           btnModeWord.classList.add('active');
           btnModeSentence.classList.remove('active');
           if (readingModeLabel) readingModeLabel.textContent = 'Word-wise';
@@ -912,18 +958,33 @@
         }
       }
 
+      if (headerModeToggle) {
+        headerModeToggle.textContent = readingMode === 'word' ? '🔤' : '📄';
+        headerModeToggle.title = readingMode === 'word' ? 'Reading Mode: Word-wise (tap for Sentence-wise)' : 'Reading Mode: Sentence-wise (tap for Word-wise)';
+      }
+
       if (isPlaying) {
         highlightSentence(currentSentenceIdx);
-        if (mode === 'word') {
-          highlightWord(currentSentenceIdx, 0, 0);
+        if (readingMode === 'word') {
+          currentWordIndex = 0;
+          highlightWordByIndex(currentSentenceIdx, 0);
         } else {
-          document.querySelectorAll('.word-span.active-word').forEach(el => el.classList.remove('active-word'));
+          clearActiveWord();
         }
+      } else {
+        clearActiveWord();
       }
     }
+    window.setReadingMode = setReadingMode;
 
     if (btnModeSentence) btnModeSentence.onclick = () => setReadingMode('sentence');
     if (btnModeWord) btnModeWord.onclick = () => setReadingMode('word');
+    if (headerModeToggle) {
+      headerModeToggle.onclick = (e) => {
+        e.stopPropagation();
+        setReadingMode(readingMode === 'word' ? 'sentence' : 'word');
+      };
+    }
     setReadingMode(readingMode);
 
     const fontSizeRange = document.getElementById('font-size-range');
@@ -1365,16 +1426,17 @@
       let m;
       let count = 0;
       while ((m = wordRegex.exec(text)) !== null) {
-        count++;
         const wSpan = document.createElement('span');
         wSpan.className = 'word-span';
         wSpan.dataset.start = m.index;
         wSpan.dataset.end = m.index + m[1].length;
+        wSpan.dataset.wordIndex = count;
         wSpan.textContent = m[1];
         span.appendChild(wSpan);
         if (m[2]) {
           span.appendChild(document.createTextNode(m[2]));
         }
+        count++;
       }
       if (count === 0) {
         span.textContent = text;
@@ -1475,9 +1537,9 @@
     }
 
     function clearActiveWord() {
-      if (wordTimer) {
-        clearInterval(wordTimer);
-        wordTimer = null;
+      if (wordPacerTimer) {
+        clearTimeout(wordPacerTimer);
+        wordPacerTimer = null;
       }
       if (currentActiveWordEl) {
         currentActiveWordEl.classList.remove('active-word');
@@ -1486,33 +1548,72 @@
       document.querySelectorAll('.word-span.active-word').forEach(el => el.classList.remove('active-word'));
     }
 
+    function scrollWordIntoViewIfNeeded(el) {
+      if (!autoScrollEnabled || !el) return;
+      const rect = el.getBoundingClientRect();
+      const topThreshold = 90;
+      const bottomThreshold = window.innerHeight - 140;
+      if (rect.top < topThreshold || rect.bottom > bottomThreshold) {
+        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }
+
     function highlightWord(sentenceId, charStart, charEnd) {
       if (readingMode !== 'word') return;
       const sentence = sentences[sentenceId];
       if (!sentence || !sentence.wordElements || sentence.wordElements.length === 0) return;
 
       let matched = null;
-      for (let i = 0; i < sentence.wordElements.length; i++) {
-        const w = sentence.wordElements[i];
-        const wStart = parseInt(w.dataset.start, 10);
-        const wEnd = parseInt(w.dataset.end, 10);
-        if (charStart >= wStart && charStart < wEnd) {
-          matched = w;
-          break;
+      if (charStart !== undefined) {
+        for (let i = 0; i < sentence.wordElements.length; i++) {
+          const w = sentence.wordElements[i];
+          const wStart = parseInt(w.dataset.start, 10);
+          const wEnd = parseInt(w.dataset.end, 10);
+          if (charStart >= wStart && charStart < wEnd) {
+            matched = w;
+            currentWordIndex = i;
+            break;
+          }
+        }
+        if (!matched) {
+          for (let i = 0; i < sentence.wordElements.length; i++) {
+            const w = sentence.wordElements[i];
+            const wStart = parseInt(w.dataset.start, 10);
+            if (wStart >= charStart) {
+              matched = w;
+              currentWordIndex = i;
+              break;
+            }
+          }
         }
       }
 
       if (!matched) {
-        matched = sentence.wordElements.find(w => parseInt(w.dataset.start, 10) >= charStart) || sentence.wordElements[0];
+        matched = sentence.wordElements[0];
+        currentWordIndex = 0;
       }
 
       if (matched && matched !== currentActiveWordEl) {
         if (currentActiveWordEl) currentActiveWordEl.classList.remove('active-word');
         matched.classList.add('active-word');
         currentActiveWordEl = matched;
-        if (autoScrollEnabled) {
-          matched.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        }
+        scrollWordIntoViewIfNeeded(matched);
+      }
+    }
+
+    function highlightWordByIndex(sentenceId, wordIdx) {
+      if (readingMode !== 'word') return;
+      const sentence = sentences[sentenceId];
+      if (!sentence || !sentence.wordElements || sentence.wordElements.length === 0) return;
+      if (wordIdx < 0 || wordIdx >= sentence.wordElements.length) return;
+
+      const matched = sentence.wordElements[wordIdx];
+      currentWordIndex = wordIdx;
+      if (matched && matched !== currentActiveWordEl) {
+        if (currentActiveWordEl) currentActiveWordEl.classList.remove('active-word');
+        matched.classList.add('active-word');
+        currentActiveWordEl = matched;
+        scrollWordIntoViewIfNeeded(matched);
       }
     }
 
@@ -1543,33 +1644,37 @@
 
       const text = sentences[idx].text;
 
-      // Start word tracking in word mode
+      // Start word tracking if in word mode
       if (readingMode === 'word') {
-        highlightWord(idx, 0, 0);
+        currentWordIndex = 0;
+        highlightWordByIndex(idx, 0);
+        lastBoundaryTime = Date.now();
+
         const sentence = sentences[idx];
-        if (sentence && sentence.wordElements && sentence.wordElements.length > 1) {
-          let wordIdx = 0;
-          const estInterval = Math.max(120, Math.round(260 / ttsSpeed));
-          lastBoundaryTime = Date.now();
-          wordTimer = setInterval(() => {
-            if (!isPlaying || currentSentenceIdx !== idx || readingMode !== 'word') {
-              clearInterval(wordTimer);
-              wordTimer = null;
-              return;
-            }
-            if (Date.now() - lastBoundaryTime > 450) {
-              wordIdx++;
-              if (wordIdx < sentence.wordElements.length) {
-                const wEl = sentence.wordElements[wordIdx];
-                if (currentActiveWordEl) currentActiveWordEl.classList.remove('active-word');
-                wEl.classList.add('active-word');
-                currentActiveWordEl = wEl;
-              } else {
-                clearInterval(wordTimer);
-                wordTimer = null;
+        const wordEls = sentence?.wordElements || [];
+
+        if (wordEls.length > 1) {
+          function scheduleNextWord() {
+            if (!isPlaying || currentSentenceIdx !== idx || readingMode !== 'word') return;
+            if (currentWordIndex >= wordEls.length - 1) return;
+
+            const curWord = wordEls[currentWordIndex];
+            const wordText = curWord ? curWord.textContent.trim() : '';
+            const charCount = Math.max(1, wordText.length);
+            const estimatedMs = Math.max(110, Math.round(((charCount + 1) / 5) * (380 / ttsSpeed)));
+
+            wordPacerTimer = setTimeout(() => {
+              if (!isPlaying || currentSentenceIdx !== idx || readingMode !== 'word') return;
+              const timeSinceBoundary = Date.now() - lastBoundaryTime;
+              if (timeSinceBoundary >= estimatedMs * 0.75) {
+                currentWordIndex++;
+                highlightWordByIndex(idx, currentWordIndex);
               }
-            }
-          }, estInterval);
+              scheduleNextWord();
+            }, estimatedMs);
+          }
+
+          scheduleNextWord();
         }
       }
 
@@ -1604,8 +1709,11 @@
       const active = sentences[idx];
       if (active && active.domElement) {
         active.domElement.classList.add('active-speech');
-        if (autoScrollEnabled && readingMode === 'sentence') {
-          active.domElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        if (autoScrollEnabled) {
+          const rect = active.domElement.getBoundingClientRect();
+          if (rect.top < 90 || rect.bottom > window.innerHeight - 140) {
+            active.domElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          }
         }
       }
     }
@@ -1745,9 +1853,9 @@
     });
 
     // Themes
-    document.querySelectorAll('.theme-pill').forEach(p => {
+    document.querySelectorAll('.theme-pill[data-set-theme]').forEach(p => {
       p.onclick = () => {
-        document.querySelectorAll('.theme-pill').forEach(x => x.classList.remove('active'));
+        document.querySelectorAll('.theme-pill[data-set-theme]').forEach(x => x.classList.remove('active'));
         p.classList.add('active');
         document.body.setAttribute('data-theme', p.dataset.setTheme);
       };
