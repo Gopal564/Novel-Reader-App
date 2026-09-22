@@ -39,6 +39,13 @@ class TTSBridge(private val context: Context, private val webView: WebView) : Te
                     }
                 }
 
+                override fun onRangeStart(utteranceId: String?, start: Int, end: Int, frame: Int) {
+                    val id = utteranceId?.toIntOrNull() ?: 0
+                    webView.post {
+                        webView.evaluateJavascript("window.onWordBoundary && window.onWordBoundary($id, $start, $end);", null)
+                    }
+                }
+
                 @Deprecated("Deprecated in Java")
                 override fun onError(utteranceId: String?) {
                     val id = utteranceId?.toIntOrNull() ?: 0

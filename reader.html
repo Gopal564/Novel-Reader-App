@@ -180,17 +180,44 @@
       text-align: justify;
     }
 
-    /* TTS Sentence Highlighting */
+    /* TTS Sentence & Word Highlighting */
     .sentence-span {
       display: inline;
       border-radius: 4px;
       padding: 1px 0;
+      transition: background-color 0.2s ease;
     }
-    .sentence-span.active-speech {
+
+    /* Sentence-wise Mode: Full sentence highlight */
+    body.mode-sentence .sentence-span.active-speech {
       background-color: var(--highlight-bg);
       color: var(--highlight-text);
       font-weight: 600;
       box-shadow: 0 0 0 2px var(--highlight-bg);
+    }
+
+    /* Word-wise Mode: Subtle sentence lane guide */
+    body.mode-word .sentence-span.active-speech {
+      background-color: rgba(99, 102, 241, 0.09);
+      box-shadow: 0 0 0 2px rgba(99, 102, 241, 0.15);
+      border-radius: 6px;
+    }
+
+    .word-span {
+      display: inline;
+      border-radius: 3px;
+      padding: 1px 2px;
+      margin: 0 -1px;
+      transition: background-color 0.12s ease, color 0.12s ease;
+    }
+
+    /* Word-wise Mode: Active word karaoke pill */
+    body.mode-word .word-span.active-word {
+      background-color: var(--accent-color);
+      color: #ffffff !important;
+      font-weight: 700;
+      border-radius: 4px;
+      box-shadow: 0 2px 8px rgba(79, 70, 229, 0.35);
     }
 
     /* Bottom TTS Dock */
@@ -722,6 +749,21 @@
           <input type="range" id="pitch-range" min="0.5" max="1.8" step="0.1" value="1.0" />
         </div>
 
+        <div class="control-row">
+          <div class="control-label">
+            <span>Reading Granularity</span>
+            <strong id="reading-mode-label" style="color: var(--accent-color);">Sentence-wise</strong>
+          </div>
+          <div style="display: flex; gap: 8px; margin-top: 8px;">
+            <button type="button" class="theme-pill active" id="btn-mode-sentence" style="flex: 1; padding: 10px 8px; text-align: center; font-weight: 600; font-size: 0.82rem; cursor: pointer;">
+              📄 Sentence-wise
+            </button>
+            <button type="button" class="theme-pill" id="btn-mode-word" style="flex: 1; padding: 10px 8px; text-align: center; font-weight: 600; font-size: 0.82rem; cursor: pointer;">
+              🔤 Word-wise
+            </button>
+          </div>
+        </div>
+
         <div class="control-row" style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px;">
           <span style="font-size: 0.85rem; font-family: sans-serif;">Auto-scroll active sentence</span>
           <input type="checkbox" id="autoscroll-toggle" checked style="width: 20px; height: 20px; accent-color: var(--accent-color);" />
@@ -808,6 +850,10 @@
     let autoScrollEnabled = true;
     let autoChapterEnabled = true;
     let autoAdvanceTimeout = null;
+    let readingMode = localStorage.getItem('reading_mode') || 'sentence';
+    let currentActiveWordEl = null;
+    let wordTimer = null;
+    let lastBoundaryTime = 0;
 
     let ttsSpeed = 1.0;
     let ttsPitch = 1.0;
@@ -843,6 +889,42 @@
     const pitchValLabel = document.getElementById('pitch-val-label');
     const autoscrollToggle = document.getElementById('autoscroll-toggle');
     const autochapterToggle = document.getElementById('autochapter-toggle');
+
+    const btnModeSentence = document.getElementById('btn-mode-sentence');
+    const btnModeWord = document.getElementById('btn-mode-word');
+    const readingModeLabel = document.getElementById('reading-mode-label');
+
+    function setReadingMode(mode) {
+      readingMode = mode;
+      localStorage.setItem('reading_mode', mode);
+      document.body.classList.remove('mode-sentence', 'mode-word');
+      document.body.classList.add(`mode-${mode}`);
+
+      if (btnModeSentence && btnModeWord) {
+        if (mode === 'word') {
+          btnModeWord.classList.add('active');
+          btnModeSentence.classList.remove('active');
+          if (readingModeLabel) readingModeLabel.textContent = 'Word-wise';
+        } else {
+          btnModeSentence.classList.add('active');
+          btnModeWord.classList.remove('active');
+          if (readingModeLabel) readingModeLabel.textContent = 'Sentence-wise';
+        }
+      }
+
+      if (isPlaying) {
+        highlightSentence(currentSentenceIdx);
+        if (mode === 'word') {
+          highlightWord(currentSentenceIdx, 0, 0);
+        } else {
+          document.querySelectorAll('.word-span.active-word').forEach(el => el.classList.remove('active-word'));
+        }
+      }
+    }
+
+    if (btnModeSentence) btnModeSentence.onclick = () => setReadingMode('sentence');
+    if (btnModeWord) btnModeWord.onclick = () => setReadingMode('word');
+    setReadingMode(readingMode);
 
     const fontSizeRange = document.getElementById('font-size-range');
     const fontSizeLabel = document.getElementById('font-size-label');
@@ -1274,6 +1356,33 @@
       renderChaptersList();
     }
 
+    function createSentenceSpan(text, globalIdx) {
+      const span = document.createElement('span');
+      span.className = 'sentence-span';
+      span.dataset.idx = globalIdx;
+
+      const wordRegex = /(\S+)(\s*)/g;
+      let m;
+      let count = 0;
+      while ((m = wordRegex.exec(text)) !== null) {
+        count++;
+        const wSpan = document.createElement('span');
+        wSpan.className = 'word-span';
+        wSpan.dataset.start = m.index;
+        wSpan.dataset.end = m.index + m[1].length;
+        wSpan.textContent = m[1];
+        span.appendChild(wSpan);
+        if (m[2]) {
+          span.appendChild(document.createTextNode(m[2]));
+        }
+      }
+      if (count === 0) {
+        span.textContent = text;
+      }
+      span.appendChild(document.createTextNode(' '));
+      return span;
+    }
+
     function renderChapter(chIndex) {
       stopTTS();
       currentChapterIndex = chIndex;
@@ -1291,32 +1400,28 @@
         const pSentences = (chapter.sentences || []).filter(s => s.paragraph_id === pIdx);
         if (pSentences.length > 0) {
           pSentences.forEach(s => {
-            const span = document.createElement('span');
-            span.className = 'sentence-span';
-            span.dataset.idx = globalIdx;
-            span.textContent = s.text + ' ';
+            const span = createSentenceSpan(s.text, globalIdx);
             pEl.appendChild(span);
 
             sentences.push({
               id: globalIdx,
               text: s.text,
-              domElement: span
+              domElement: span,
+              wordElements: Array.from(span.querySelectorAll('.word-span'))
             });
             globalIdx++;
           });
         } else {
           pText.split(/(?<=[.!?…])\s+/).forEach(st => {
             if (!st.trim()) return;
-            const span = document.createElement('span');
-            span.className = 'sentence-span';
-            span.dataset.idx = globalIdx;
-            span.textContent = st.trim() + ' ';
+            const span = createSentenceSpan(st.trim(), globalIdx);
             pEl.appendChild(span);
 
             sentences.push({
               id: globalIdx,
               text: st.trim(),
-              domElement: span
+              domElement: span,
+              wordElements: Array.from(span.querySelectorAll('.word-span'))
             });
             globalIdx++;
           });
@@ -1369,6 +1474,56 @@
       }
     }
 
+    function clearActiveWord() {
+      if (wordTimer) {
+        clearInterval(wordTimer);
+        wordTimer = null;
+      }
+      if (currentActiveWordEl) {
+        currentActiveWordEl.classList.remove('active-word');
+        currentActiveWordEl = null;
+      }
+      document.querySelectorAll('.word-span.active-word').forEach(el => el.classList.remove('active-word'));
+    }
+
+    function highlightWord(sentenceId, charStart, charEnd) {
+      if (readingMode !== 'word') return;
+      const sentence = sentences[sentenceId];
+      if (!sentence || !sentence.wordElements || sentence.wordElements.length === 0) return;
+
+      let matched = null;
+      for (let i = 0; i < sentence.wordElements.length; i++) {
+        const w = sentence.wordElements[i];
+        const wStart = parseInt(w.dataset.start, 10);
+        const wEnd = parseInt(w.dataset.end, 10);
+        if (charStart >= wStart && charStart < wEnd) {
+          matched = w;
+          break;
+        }
+      }
+
+      if (!matched) {
+        matched = sentence.wordElements.find(w => parseInt(w.dataset.start, 10) >= charStart) || sentence.wordElements[0];
+      }
+
+      if (matched && matched !== currentActiveWordEl) {
+        if (currentActiveWordEl) currentActiveWordEl.classList.remove('active-word');
+        matched.classList.add('active-word');
+        currentActiveWordEl = matched;
+        if (autoScrollEnabled) {
+          matched.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }
+      }
+    }
+
+    window.onWordBoundary = function(sentenceId, charStart, charEnd) {
+      if (!isPlaying || sentenceId !== currentSentenceIdx) return;
+      lastBoundaryTime = Date.now();
+      if (readingMode === 'word') {
+        highlightWord(sentenceId, charStart, charEnd);
+      }
+    };
+
     // TTS Implementation
     function speakSentence(idx) {
       if (idx < 0) return;
@@ -1379,12 +1534,44 @@
 
       currentSentenceIdx = idx;
       highlightSentence(idx);
+      clearActiveWord();
+
       updateProgress();
       isPlaying = true;
       playBtnIcon.textContent = '⏸';
       ttsStatusText.textContent = `Speaking sentence ${idx + 1}...`;
 
       const text = sentences[idx].text;
+
+      // Start word tracking in word mode
+      if (readingMode === 'word') {
+        highlightWord(idx, 0, 0);
+        const sentence = sentences[idx];
+        if (sentence && sentence.wordElements && sentence.wordElements.length > 1) {
+          let wordIdx = 0;
+          const estInterval = Math.max(120, Math.round(260 / ttsSpeed));
+          lastBoundaryTime = Date.now();
+          wordTimer = setInterval(() => {
+            if (!isPlaying || currentSentenceIdx !== idx || readingMode !== 'word') {
+              clearInterval(wordTimer);
+              wordTimer = null;
+              return;
+            }
+            if (Date.now() - lastBoundaryTime > 450) {
+              wordIdx++;
+              if (wordIdx < sentence.wordElements.length) {
+                const wEl = sentence.wordElements[wordIdx];
+                if (currentActiveWordEl) currentActiveWordEl.classList.remove('active-word');
+                wEl.classList.add('active-word');
+                currentActiveWordEl = wEl;
+              } else {
+                clearInterval(wordTimer);
+                wordTimer = null;
+              }
+            }
+          }, estInterval);
+        }
+      }
 
       if (hasAndroidTTS) {
         window.AndroidTTS.speak(text, idx);
@@ -1394,6 +1581,11 @@
         if (selectedVoice) u.voice = selectedVoice;
         u.rate = ttsSpeed;
         u.pitch = ttsPitch;
+        u.onboundary = (e) => {
+          if (e.name === 'word') {
+            window.onWordBoundary(currentSentenceIdx, e.charIndex, e.charIndex + (e.charLength || 0));
+          }
+        };
         u.onend = () => {
           if (isPlaying) speakSentence(currentSentenceIdx + 1);
         };
@@ -1412,7 +1604,7 @@
       const active = sentences[idx];
       if (active && active.domElement) {
         active.domElement.classList.add('active-speech');
-        if (autoScrollEnabled) {
+        if (autoScrollEnabled && readingMode === 'sentence') {
           active.domElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
         }
       }
@@ -1423,6 +1615,7 @@
         clearTimeout(autoAdvanceTimeout);
         autoAdvanceTimeout = null;
       }
+      clearActiveWord();
       isPlaying = false;
       playBtnIcon.textContent = '▶';
       ttsStatusText.textContent = 'Paused';
