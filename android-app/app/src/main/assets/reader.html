@@ -292,67 +292,96 @@
     }
 
     /* ====================================================
-       FIXED ROBUST FULL-VIEWPORT BOTTOM SHEETS & MODALS
+       ROBUST VIEWPORT-LOCKED BOTTOM SHEETS & DRAWERS
        ==================================================== */
     .drawer-overlay {
       position: fixed;
       top: 0;
       left: 0;
-      width: 100vw;
-      height: 100vh;
-      background: rgba(0, 0, 0, 0.65);
-      z-index: 9999;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      height: 100%;
+      background-color: rgba(0, 0, 0, 0.65);
+      z-index: 10000;
       display: none;
-      flex-direction: column;
-      justify-content: flex-end; /* Locks sheet directly to the bottom */
-      align-items: center;
+      opacity: 0;
+      transition: opacity 0.22s ease;
+      touch-action: none;
     }
     .drawer-overlay.active {
-      display: flex !important;
+      display: block !important;
+      opacity: 1;
+      pointer-events: auto;
     }
 
     .drawer-content {
+      position: absolute;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      margin: 0 auto;
       width: 100%;
-      max-width: 600px;
-      background: var(--surface-color);
+      max-width: 640px;
+      height: 72%;
+      max-height: 82%;
+      min-height: 320px;
+      background-color: var(--surface-color) !important;
       color: var(--text-color);
-      border-top: 1px solid var(--surface-border);
       border-top-left-radius: 22px;
       border-top-right-radius: 22px;
-      padding: 16px 18px calc(24px + env(safe-area-inset-bottom, 15px));
-      height: 75vh; /* Standard 75% screen height so options are always above */
-      max-height: 85vh;
+      border: 1px solid var(--surface-border);
+      border-bottom: none;
+      box-shadow: 0 -10px 40px rgba(0, 0, 0, 0.45);
       display: flex;
       flex-direction: column;
-      box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.35);
-      animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      overflow: hidden;
+      transform: translateY(100%);
+      transition: transform 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+      box-sizing: border-box;
+      touch-action: pan-y;
+    }
+    .drawer-overlay.active .drawer-content {
+      transform: translateY(0);
     }
 
-    @keyframes modalSlideUp {
-      from { transform: translateY(100%); }
-      to { transform: translateY(0); }
+    .drawer-drag-pill {
+      width: 40px;
+      height: 4px;
+      border-radius: 2px;
+      background-color: var(--surface-border);
+      margin: 10px auto 4px auto;
+      flex-shrink: 0;
+      opacity: 0.8;
     }
 
     .drawer-header {
       display: flex;
       align-items: center;
       justify-content: space-between;
-      margin-bottom: 12px;
-      padding-bottom: 8px;
+      padding: 8px 18px 12px 18px;
       border-bottom: 1px solid var(--surface-border);
       flex-shrink: 0;
+      background-color: var(--surface-color);
     }
     .drawer-header h3 {
-      font-size: 1.05rem;
+      font-size: 1.1rem;
       font-weight: 700;
-      font-family: sans-serif;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      margin: 0;
+      letter-spacing: -0.01em;
     }
 
     .drawer-body {
-      flex: 1;
+      flex: 1 1 auto;
       overflow-y: auto;
       -webkit-overflow-scrolling: touch;
-      padding-bottom: 30px;
+      padding: 14px 18px calc(24px + env(safe-area-inset-bottom, 16px)) 18px;
+      overscroll-behavior: contain;
+    }
+
+    body.modal-open {
+      overflow: hidden !important;
     }
 
     .control-row {
@@ -571,9 +600,10 @@
   <!-- Chapters Drawer -->
   <div class="drawer-overlay" id="chapters-drawer-overlay">
     <div class="drawer-content">
+      <div class="drawer-drag-pill"></div>
       <div class="drawer-header">
         <h3>Chapters & Downloads</h3>
-        <button class="icon-btn" id="close-chapters-drawer">✕</button>
+        <button class="icon-btn close-drawer-btn" id="close-chapters-drawer">✕</button>
       </div>
 
       <div class="drawer-tab-bar">
@@ -620,9 +650,10 @@
   <!-- Audio / TTS Tuning Drawer -->
   <div class="drawer-overlay" id="audio-drawer-overlay">
     <div class="drawer-content">
+      <div class="drawer-drag-pill"></div>
       <div class="drawer-header">
         <h3>TTS Audio Tuning</h3>
-        <button class="icon-btn" id="close-audio-drawer">✕</button>
+        <button class="icon-btn close-drawer-btn" id="close-audio-drawer">✕</button>
       </div>
 
       <div class="drawer-body">
@@ -660,9 +691,10 @@
   <!-- Appearance / Typography Drawer -->
   <div class="drawer-overlay" id="settings-drawer-overlay">
     <div class="drawer-content">
+      <div class="drawer-drag-pill"></div>
       <div class="drawer-header">
         <h3>Appearance</h3>
-        <button class="icon-btn" id="close-settings-drawer">✕</button>
+        <button class="icon-btn close-drawer-btn" id="close-settings-drawer">✕</button>
       </div>
 
       <div class="drawer-body">
@@ -834,7 +866,7 @@
         item.className = 'chapter-list-item' + (idx === currentChapterIndex ? ' current' : '');
         item.innerHTML = `<span>${ch.title}</span><span style="opacity:0.6; font-size:0.75rem;">${ch.word_count || 1200} words</span>`;
         item.onclick = () => {
-          chaptersDrawerOverlay.classList.remove('active');
+          window.closeAllDrawers();
           renderChapter(idx);
         };
         chaptersListContainer.appendChild(item);
@@ -1112,18 +1144,56 @@
 
     autoscrollToggle.onchange = (e) => autoScrollEnabled = e.target.checked;
 
-    // Drawers Open / Close Handlers
-    document.getElementById('open-chapters-btn').onclick = () => chaptersDrawerOverlay.classList.add('active');
-    document.getElementById('close-chapters-drawer').onclick = () => chaptersDrawerOverlay.classList.remove('active');
-    chaptersDrawerOverlay.onclick = (e) => { if (e.target === chaptersDrawerOverlay) chaptersDrawerOverlay.classList.remove('active'); };
+    // Robust Mutual-Exclusion Drawer Manager
+    window.openDrawer = function(drawerId) {
+      window.closeAllDrawers();
+      const target = document.getElementById(drawerId);
+      if (target) {
+        target.classList.add('active');
+        document.body.classList.add('modal-open');
+      }
+    };
 
-    document.getElementById('open-audio-btn').onclick = () => audioDrawerOverlay.classList.add('active');
-    document.getElementById('close-audio-drawer').onclick = () => audioDrawerOverlay.classList.remove('active');
-    audioDrawerOverlay.onclick = (e) => { if (e.target === audioDrawerOverlay) audioDrawerOverlay.classList.remove('active'); };
+    window.closeAllDrawers = function() {
+      document.querySelectorAll('.drawer-overlay').forEach(el => {
+        el.classList.remove('active');
+      });
+      document.body.classList.remove('modal-open');
+    };
 
-    document.getElementById('open-settings-btn').onclick = () => settingsDrawerOverlay.classList.add('active');
-    document.getElementById('close-settings-drawer').onclick = () => settingsDrawerOverlay.classList.remove('active');
-    settingsDrawerOverlay.onclick = (e) => { if (e.target === settingsDrawerOverlay) settingsDrawerOverlay.classList.remove('active'); };
+    document.getElementById('open-chapters-btn').onclick = (e) => {
+      e.stopPropagation();
+      window.openDrawer('chapters-drawer-overlay');
+    };
+    document.getElementById('open-audio-btn').onclick = (e) => {
+      e.stopPropagation();
+      window.openDrawer('audio-drawer-overlay');
+    };
+    document.getElementById('open-settings-btn').onclick = (e) => {
+      e.stopPropagation();
+      window.openDrawer('settings-drawer-overlay');
+    };
+
+    document.querySelectorAll('.close-drawer-btn').forEach(btn => {
+      btn.onclick = (e) => {
+        e.stopPropagation();
+        window.closeAllDrawers();
+      };
+    });
+
+    document.querySelectorAll('.drawer-overlay').forEach(overlay => {
+      overlay.addEventListener('click', (e) => {
+        if (e.target === overlay) {
+          window.closeAllDrawers();
+        }
+      });
+    });
+
+    document.addEventListener('keydown', (e) => {
+      if (e.key === 'Escape') {
+        window.closeAllDrawers();
+      }
+    });
 
     // Themes
     document.querySelectorAll('.theme-pill').forEach(p => {

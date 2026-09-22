@@ -40,7 +40,7 @@ class MainActivity : ComponentActivity() {
                                 settings.allowFileAccess = true
                                 settings.allowContentAccess = true
                                 settings.useWideViewPort = true
-                                settings.loadWithOverviewMode = true
+                                settings.loadWithOverviewMode = false
                                 settings.cacheMode = WebSettings.LOAD_DEFAULT
 
                                 val bridge = TTSBridge(ctx, this)
@@ -55,6 +55,30 @@ class MainActivity : ComponentActivity() {
                     )
                 }
             }
+        }
+    }
+
+    @Deprecated("Deprecated in Java")
+    override fun onBackPressed() {
+        val wv = webView
+        if (wv != null) {
+            wv.evaluateJavascript(
+                "(function() { " +
+                "  var active = document.querySelector('.drawer-overlay.active'); " +
+                "  if (active) { " +
+                "    if (window.closeAllDrawers) { window.closeAllDrawers(); } " +
+                "    else { active.classList.remove('active'); } " +
+                "    return true; " +
+                "  } " +
+                "  return false; " +
+                "})()"
+            ) { result ->
+                if (result != "true") {
+                    super.onBackPressed()
+                }
+            }
+        } else {
+            super.onBackPressed()
         }
     }
 
