@@ -517,31 +517,56 @@
     .download-bundle-card {
       background: var(--bg-color);
       border: 1px solid var(--surface-border);
-      border-radius: 10px;
-      padding: 12px;
-      margin-bottom: 10px;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-bottom: 12px;
       display: flex;
       align-items: center;
       justify-content: space-between;
+      gap: 12px;
       font-family: sans-serif;
+      box-shadow: 0 1px 4px rgba(0,0,0,0.05);
+      cursor: pointer;
+      transition: border-color 0.15s ease, transform 0.1s ease;
+      -webkit-tap-highlight-color: transparent;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+    .download-bundle-card:active {
+      transform: scale(0.99);
+      border-color: var(--accent-color);
     }
     .download-bundle-title {
-      font-size: 0.85rem;
-      font-weight: 600;
+      font-size: 0.9rem;
+      font-weight: 700;
+      margin-bottom: 2px;
     }
     .download-bundle-sub {
-      font-size: 0.72rem;
-      opacity: 0.7;
+      font-size: 0.76rem;
+      opacity: 0.75;
     }
     .btn-download {
       background: var(--accent-color);
       color: #fff;
       border: none;
-      padding: 6px 14px;
-      border-radius: 6px;
-      font-size: 0.75rem;
-      font-weight: 600;
+      padding: 10px 18px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
       cursor: pointer;
+      min-width: 96px;
+      text-align: center;
+      flex-shrink: 0;
+      transition: background 0.15s ease, transform 0.1s ease;
+      touch-action: manipulation;
+    }
+    .btn-download:active {
+      transform: scale(0.95);
+      opacity: 0.9;
+    }
+    .btn-download.installed {
+      background: #059669 !important;
+      color: #fff !important;
     }
   </style>
 </head>
@@ -619,13 +644,15 @@
 
         <!-- Cloud Pull View -->
         <div id="cloud-chapters-view" style="display: none;">
-          <div style="font-family: sans-serif; font-size: 0.8rem; margin-bottom: 12px; opacity: 0.85;">
-            Pull 50-chapter bundles directly into your app for offline reading.
+          <div style="font-family: sans-serif; font-size: 0.82rem; margin-bottom: 10px; opacity: 0.85; line-height: 1.4;">
+            Download 50-chapter bundles from GitHub directly into your app for offline reading.
           </div>
 
+          <div id="cloud-status-banner" style="display: none; padding: 12px 14px; border-radius: 8px; font-size: 0.82rem; margin-bottom: 14px; font-family: sans-serif; line-height: 1.4;"></div>
+
           <div class="control-row">
-            <div class="control-label"><span>GitHub / Cloud Data URL</span></div>
-            <input type="text" id="cloud-source-url" class="styled-select" value="data/" placeholder="e.g. data/ or https://raw.githubusercontent.com/.../data/" />
+            <div class="control-label"><span>GitHub Repository Data URL</span></div>
+            <input type="text" id="cloud-source-url" class="styled-select" value="https://raw.githubusercontent.com/Gopal564/Novel-Reader-App/main/data/" placeholder="https://raw.githubusercontent.com/.../data/" />
           </div>
 
           <div id="bundles-list-container">
@@ -633,14 +660,15 @@
           </div>
 
           <!-- Custom Range Pull -->
-          <div class="download-bundle-card" style="flex-direction: column; align-items: stretch; gap: 8px;">
+          <div class="download-bundle-card" style="flex-direction: column; align-items: stretch; gap: 10px; cursor: default;">
             <div class="download-bundle-title">Custom Chapter Range</div>
+            <div style="font-size: 0.75rem; opacity: 0.75;">Enter any chapter range (e.g. 1830 to 1879) to fetch from GitHub:</div>
             <div style="display: flex; gap: 8px;">
-              <input type="number" id="custom-start-ch" class="styled-select" placeholder="Start (e.g. 1780)" value="1780" />
-              <input type="number" id="custom-end-ch" class="styled-select" placeholder="End (e.g. 1829)" value="1829" />
-              <button class="btn-download" id="custom-pull-btn">Fetch</button>
+              <input type="number" id="custom-start-ch" class="styled-select" placeholder="Start" value="1830" style="flex: 1;" />
+              <input type="number" id="custom-end-ch" class="styled-select" placeholder="End" value="1879" style="flex: 1;" />
+              <button class="btn-download" id="custom-pull-btn">Fetch ⬇</button>
             </div>
-            <div id="pull-status-msg" style="font-size: 0.72rem; color: var(--accent-color);"></div>
+            <div id="pull-status-msg" style="font-size: 0.75rem; color: var(--accent-color);"></div>
           </div>
         </div>
       </div>
@@ -890,45 +918,131 @@
       presetBundles.forEach(b => {
         const card = document.createElement('div');
         card.className = 'download-bundle-card';
+
+        // Check if bundle is already present in library
+        const isPresent = novelBundle && novelBundle.bundled_chapters &&
+          novelBundle.bundled_chapters.some(c => c.chapter_index >= b.start && c.chapter_index <= b.end);
+
+        const btnText = isPresent ? '✅ Read' : '⬇ Download';
+        const btnClass = isPresent ? 'btn-download installed' : 'btn-download';
+
         card.innerHTML = `
           <div>
             <div class="download-bundle-title">${b.title}</div>
-            <div class="download-bundle-sub">GitHub Action Bundle • Ch. ${b.start}-${b.end}</div>
+            <div class="download-bundle-sub">GitHub Action Bundle • Ch. ${b.start}-${b.end} ${isPresent ? '• <span style="color:#059669; font-weight:700;">In Library</span>' : ''}</div>
           </div>
-          <button class="btn-download" data-start="${b.start}" data-end="${b.end}">Download</button>
+          <button class="${btnClass}" data-start="${b.start}" data-end="${b.end}">${btnText}</button>
         `;
+
         const btn = card.querySelector('.btn-download');
-        btn.onclick = () => pullBundle(b.start, b.end, btn);
+
+        const handleClick = (e) => {
+          e.stopPropagation();
+          if (isPresent) {
+            // Find first chapter of this bundle and jump to it
+            const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index >= b.start);
+            if (targetChIdx !== -1) {
+              window.closeAllDrawers();
+              renderChapter(targetChIdx);
+            } else {
+              tabBtnLocal.click();
+            }
+          } else {
+            pullBundle(b.start, b.end, btn);
+          }
+        };
+
+        btn.onclick = handleClick;
+        card.onclick = handleClick;
         bundlesListContainer.appendChild(card);
       });
     }
 
     async function pullBundle(start, end, btnEl) {
+      const statusBanner = document.getElementById('cloud-status-banner');
+      if (statusBanner) {
+        statusBanner.style.display = 'block';
+        statusBanner.style.background = 'rgba(79, 70, 229, 0.12)';
+        statusBanner.style.color = 'var(--accent-color)';
+        statusBanner.innerHTML = `⏳ Downloading Chapters ${start}–${end} from GitHub repository...`;
+      }
+
       if (btnEl) {
         btnEl.disabled = true;
-        btnEl.textContent = 'Pulling...';
+        btnEl.textContent = '⏳ Fetching...';
       }
-      const baseUrl = document.getElementById('cloud-source-url').value.trim();
+
+      const defaultBase = 'https://raw.githubusercontent.com/Gopal564/Novel-Reader-App/main/data/';
+      let baseUrl = (document.getElementById('cloud-source-url').value || '').trim();
+      if (!baseUrl || baseUrl === 'data/' || baseUrl === 'data') {
+        baseUrl = defaultBase;
+        document.getElementById('cloud-source-url').value = defaultBase;
+      }
       const bundleFileName = `chapters_${start}_${end}.json`;
       const fullUrl = baseUrl.endsWith('/') ? `${baseUrl}${bundleFileName}` : `${baseUrl}/${bundleFileName}`;
 
       try {
-        const res = await fetch(fullUrl);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        const data = await res.json();
+        let jsonText = null;
 
-        if (data && data.chapters) {
+        // 1. If running inside Android Native App, use native download bridge
+        if (hasAndroidTTS && window.AndroidTTS && window.AndroidTTS.downloadUrl) {
+          console.log("Using native Android HTTP downloader for:", fullUrl);
+          const nativeRes = window.AndroidTTS.downloadUrl(fullUrl);
+          if (nativeRes.startsWith("HTTP_ERROR:") || nativeRes.startsWith("EXCEPTION:")) {
+            throw new Error(nativeRes);
+          }
+          jsonText = nativeRes;
+        } else {
+          // 2. Web Browser standard fetch with fallback
+          console.log("Using browser fetch for:", fullUrl);
+          let res = await fetch(fullUrl);
+          if (!res.ok && !fullUrl.startsWith('data/')) {
+            // Fallback to local data/ if running local server
+            try {
+              const localRes = await fetch(`data/${bundleFileName}`);
+              if (localRes.ok) res = localRes;
+            } catch(e) {}
+          }
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          jsonText = await res.text();
+        }
+
+        const data = JSON.parse(jsonText);
+        if (data && data.chapters && data.chapters.length > 0) {
           integrateFetchedChapters(data.chapters);
-          if (btnEl) btnEl.textContent = '✅ Added!';
-          alert(`Successfully pulled ${data.chapters.length} chapters!`);
-          tabBtnLocal.click();
+
+          if (statusBanner) {
+            statusBanner.style.background = 'rgba(16, 185, 129, 0.15)';
+            statusBanner.style.color = '#059669';
+            statusBanner.innerHTML = `✅ Successfully imported ${data.chapters.length} chapters (${start}–${end})! Added to library.`;
+          }
+
+          if (btnEl) {
+            btnEl.textContent = '✅ Read';
+            btnEl.className = 'btn-download installed';
+            btnEl.disabled = false;
+          }
+
+          renderCloudBundles();
+
+          // Auto-switch to offline chapters tab after 1.2 seconds
+          setTimeout(() => {
+            tabBtnLocal.click();
+          }, 1200);
+        } else {
+          throw new Error("Empty or invalid chapters data");
         }
       } catch (err) {
+        console.error("Bundle pull error:", err);
+        if (statusBanner) {
+          statusBanner.style.background = 'rgba(239, 68, 68, 0.15)';
+          statusBanner.style.color = '#dc2626';
+          statusBanner.innerHTML = `❌ Failed to download chapters ${start}–${end}.<br><span style="font-size:0.75rem; opacity:0.85;">Details: ${err.message}<br>Ensure GitHub Action has generated this bundle or check internet connection.</span>`;
+        }
         if (btnEl) {
           btnEl.disabled = false;
-          btnEl.textContent = 'Download';
+          btnEl.textContent = 'Retry ⬇';
         }
-        alert(`Could not fetch bundle: ${fullUrl}\nEnsure the file exists in the repo or action output.`);
       }
     }
 

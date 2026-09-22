@@ -121,6 +121,27 @@ class TTSBridge(private val context: Context, private val webView: WebView) : Te
         }
     }
 
+    @JavascriptInterface
+    fun downloadUrl(urlStr: String): String {
+        return try {
+            val url = java.net.URL(urlStr)
+            val conn = url.openConnection() as java.net.HttpURLConnection
+            conn.requestMethod = "GET"
+            conn.connectTimeout = 15000
+            conn.readTimeout = 30000
+            conn.setRequestProperty("User-Agent", "Mozilla/5.0 (Android; Mobile)")
+            conn.connect()
+            val code = conn.responseCode
+            if (code in 200..299) {
+                conn.inputStream.bufferedReader().use { it.readText() }
+            } else {
+                "HTTP_ERROR:$code"
+            }
+        } catch (e: Exception) {
+            "EXCEPTION:${e.message}"
+        }
+    }
+
     fun shutdown() {
         tts?.stop()
         tts?.shutdown()

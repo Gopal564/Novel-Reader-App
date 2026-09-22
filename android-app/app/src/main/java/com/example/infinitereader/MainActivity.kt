@@ -1,6 +1,7 @@
 package com.example.infinitereader
 
 import android.os.Bundle
+import android.webkit.WebChromeClient
 import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -39,6 +40,8 @@ class MainActivity : ComponentActivity() {
                                 settings.domStorageEnabled = true
                                 settings.allowFileAccess = true
                                 settings.allowContentAccess = true
+                                settings.allowUniversalAccessFromFileURLs = true
+                                settings.allowFileAccessFromFileURLs = true
                                 settings.useWideViewPort = true
                                 settings.loadWithOverviewMode = false
                                 settings.cacheMode = WebSettings.LOAD_DEFAULT
@@ -48,6 +51,7 @@ class MainActivity : ComponentActivity() {
                                 addJavascriptInterface(bridge, "AndroidTTS")
 
                                 webViewClient = WebViewClient()
+                                webChromeClient = WebChromeClient()
                                 loadUrl("file:///android_asset/reader.html")
                             }
                         },
