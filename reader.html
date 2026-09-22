@@ -183,13 +183,8 @@
     /* TTS Sentence Highlighting */
     .sentence-span {
       display: inline;
-      cursor: pointer;
       border-radius: 4px;
-      padding: 1px 2px;
-      transition: background-color 0.15s ease;
-    }
-    .sentence-span:active {
-      background-color: rgba(99, 102, 241, 0.2);
+      padding: 1px 0;
     }
     .sentence-span.active-speech {
       background-color: var(--highlight-bg);
@@ -712,6 +707,11 @@
           <span style="font-size: 0.85rem; font-family: sans-serif;">Auto-scroll active sentence</span>
           <input type="checkbox" id="autoscroll-toggle" checked style="width: 20px; height: 20px; accent-color: var(--accent-color);" />
         </div>
+
+        <div class="control-row" style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px;">
+          <span style="font-size: 0.85rem; font-family: sans-serif;">Auto-advance to next chapter</span>
+          <input type="checkbox" id="autochapter-toggle" checked style="width: 20px; height: 20px; accent-color: var(--accent-color);" />
+        </div>
       </div>
     </div>
   </div>
@@ -787,6 +787,8 @@
     let currentSentenceIdx = 0;
     let isPlaying = false;
     let autoScrollEnabled = true;
+    let autoChapterEnabled = true;
+    let autoAdvanceTimeout = null;
 
     let ttsSpeed = 1.0;
     let ttsPitch = 1.0;
@@ -821,6 +823,7 @@
     const pitchRange = document.getElementById('pitch-range');
     const pitchValLabel = document.getElementById('pitch-val-label');
     const autoscrollToggle = document.getElementById('autoscroll-toggle');
+    const autochapterToggle = document.getElementById('autochapter-toggle');
 
     const fontSizeRange = document.getElementById('font-size-range');
     const fontSizeLabel = document.getElementById('font-size-label');
@@ -1096,7 +1099,6 @@
             span.className = 'sentence-span';
             span.dataset.idx = globalIdx;
             span.textContent = s.text + ' ';
-            span.onclick = () => jumpToSentence(parseInt(span.dataset.idx, 10));
             pEl.appendChild(span);
 
             sentences.push({
@@ -1113,7 +1115,6 @@
             span.className = 'sentence-span';
             span.dataset.idx = globalIdx;
             span.textContent = st.trim() + ' ';
-            span.onclick = () => jumpToSentence(parseInt(span.dataset.idx, 10));
             pEl.appendChild(span);
 
             sentences.push({
@@ -1127,6 +1128,27 @@
         readerContent.appendChild(pEl);
       });
 
+      // Bottom Chapter Navigation
+      const navDiv = document.createElement('div');
+      navDiv.className = 'chapter-bottom-nav';
+      navDiv.style.cssText = 'display: flex; justify-content: space-between; gap: 12px; margin: 3rem 0 2rem; padding: 1.25rem 0; border-top: 1px solid var(--surface-border);';
+      const hasPrev = chIndex > 0;
+      const hasNext = novelBundle && novelBundle.bundled_chapters && chIndex < novelBundle.bundled_chapters.length - 1;
+      navDiv.innerHTML = `
+        <button id="bottom-prev-btn" class="secondary-btn" style="flex: 1; padding: 12px 14px; border-radius: 10px; font-weight: 600; font-size: 0.9rem; cursor: pointer; ${!hasPrev ? 'opacity: 0.4; pointer-events: none;' : ''}">← Prev Chapter</button>
+        <button id="bottom-next-btn" class="primary-btn" style="flex: 1; padding: 12px 14px; border-radius: 10px; font-weight: 600; font-size: 0.9rem; cursor: pointer; ${!hasNext ? 'opacity: 0.4; pointer-events: none;' : ''}">Next Chapter →</button>
+      `;
+      readerContent.appendChild(navDiv);
+
+      const bPrev = navDiv.querySelector('#bottom-prev-btn');
+      const bNext = navDiv.querySelector('#bottom-next-btn');
+      if (bPrev && hasPrev) {
+        bPrev.onclick = () => renderChapter(chIndex - 1);
+      }
+      if (bNext && hasNext) {
+        bNext.onclick = () => renderChapter(chIndex + 1);
+      }
+
       mainChapterMeta.textContent = `${chapter.paragraphs.length} Paragraphs • ${sentences.length} Sentences • Ready to Listen`;
       currentSentenceIdx = 0;
       updateProgress();
@@ -1134,11 +1156,28 @@
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
+    function onChapterComplete() {
+      const nextIdx = currentChapterIndex + 1;
+      const hasNext = novelBundle && novelBundle.bundled_chapters && nextIdx < novelBundle.bundled_chapters.length;
+      if (autoChapterEnabled && hasNext) {
+        ttsStatusText.textContent = "Loading next chapter...";
+        if (autoAdvanceTimeout) clearTimeout(autoAdvanceTimeout);
+        autoAdvanceTimeout = setTimeout(() => {
+          autoAdvanceTimeout = null;
+          renderChapter(nextIdx);
+          speakSentence(0);
+        }, 600);
+      } else {
+        stopTTS();
+        ttsStatusText.textContent = hasNext ? "Chapter complete" : "Novel complete";
+      }
+    }
+
     // TTS Implementation
     function speakSentence(idx) {
-      if (idx < 0 || idx >= sentences.length) {
-        stopTTS();
-        ttsStatusText.textContent = "Chapter complete";
+      if (idx < 0) return;
+      if (idx >= sentences.length) {
+        onChapterComplete();
         return;
       }
 
@@ -1183,7 +1222,11 @@
       }
     }
 
-    function stopTTS() {
+    function stopTTS(clearAutoAdvance = true) {
+      if (clearAutoAdvance && autoAdvanceTimeout) {
+        clearTimeout(autoAdvanceTimeout);
+        autoAdvanceTimeout = null;
+      }
       isPlaying = false;
       playBtnIcon.textContent = '▶';
       ttsStatusText.textContent = 'Paused';
@@ -1257,6 +1300,9 @@
     };
 
     autoscrollToggle.onchange = (e) => autoScrollEnabled = e.target.checked;
+    if (autochapterToggle) {
+      autochapterToggle.onchange = (e) => autoChapterEnabled = e.target.checked;
+    }
 
     // Robust Mutual-Exclusion Drawer Manager
     window.openDrawer = function(drawerId) {
