@@ -1,0 +1,28 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Operating System
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Android & Gradle Build Artifacts
+android-app/.gradle/
+android-app/build/
+android-app/app/build/
+android-app/local.properties
+.gradle/
+build/
+local.properties
+
+# Scratch & Logs
+*.log

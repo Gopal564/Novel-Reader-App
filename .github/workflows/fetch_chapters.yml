@@ -1,0 +1,47 @@
+name: Fetch Web Novel Chapters
+
+on:
+  workflow_dispatch:
+    inputs:
+      start_chapter:
+        description: 'Start Chapter Number (e.g. 1780)'
+        required: true
+        default: '1780'
+      end_chapter:
+        description: 'End Chapter Number (e.g. 1829 for a 50-chapter bundle)'
+        required: true
+        default: '1829'
+
+permissions:
+  contents: write
+
+jobs:
+  scrape-and-bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install Dependencies
+        run: |
+          pip install beautifulsoup4
+
+      - name: Fetch and Bundle Chapters
+        run: |
+          python scripts/github_chapter_fetcher.py \
+            --start ${{ github.event.inputs.start_chapter }} \
+            --end ${{ github.event.inputs.end_chapter }} \
+            --output-dir data
+
+      - name: Commit and Push New Chapter Bundle
+        run: |
+          git config --global user.name "github-actions[bot]"
+          git config --global user.email "github-actions[bot]@users.noreply.github.com"
+          git add data/
+          git diff --staged --quiet || (git commit -m "Add Chapter Bundle ${{ github.event.inputs.start_chapter }}-${{ github.event.inputs.end_chapter }}" && git push)

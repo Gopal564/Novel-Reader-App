@@ -1,0 +1,19 @@
+{
+  "novel_id": "infinite-mana-in-the-apocalypse",
+  "bundles": [
+    {
+      "bundle_file": "chapters_1780_1782.json",
+      "start_chapter": 1780,
+      "end_chapter": 1782,
+      "chapter_count": 3,
+      "updated_at": "2026-09-22T12:34:25Z"
+    },
+    {
+      "bundle_file": "chapters_1780_1785.json",
+      "start_chapter": 1780,
+      "end_chapter": 1785,
+      "chapter_count": 6,
+      "updated_at": "2026-09-22T12:35:15Z"
+    }
+  ]
+}

@@ -1,0 +1,1244 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  <title>Infinite Mana Reader</title>
+  <style>
+    :root {
+      --bg-color: #ffffff;
+      --text-color: #1a1a1a;
+      --accent-color: #4f46e5;
+      --surface-color: #f8fafc;
+      --surface-border: #e2e8f0;
+      --highlight-bg: #fef08a;
+      --highlight-text: #000000;
+      --font-family: Georgia, serif;
+      --font-size: 19px;
+      --line-height: 1.75;
+      --dock-bg: rgba(255, 255, 255, 0.98);
+      --dock-shadow: 0 -4px 25px rgba(0, 0, 0, 0.1);
+      --header-height: 56px;
+      --dock-height: 84px;
+    }
+
+    [data-theme="sepia"] {
+      --bg-color: #f4ecd8;
+      --text-color: #433422;
+      --surface-color: #ebe2cb;
+      --surface-border: #dcd0b5;
+      --highlight-bg: #ffd166;
+      --highlight-text: #1a140d;
+      --dock-bg: rgba(244, 236, 216, 0.98);
+      --dock-shadow: 0 -4px 20px rgba(67, 52, 34, 0.15);
+    }
+
+    [data-theme="dark"] {
+      --bg-color: #18181b;
+      --text-color: #e4e4e7;
+      --surface-color: #27272a;
+      --surface-border: #3f3f46;
+      --highlight-bg: #854d0e;
+      --highlight-text: #fef08a;
+      --accent-color: #6366f1;
+      --dock-bg: rgba(24, 24, 27, 0.98);
+      --dock-shadow: 0 -4px 25px rgba(0, 0, 0, 0.5);
+    }
+
+    [data-theme="oled"] {
+      --bg-color: #000000;
+      --text-color: #a1a1aa;
+      --surface-color: #121212;
+      --surface-border: #27272a;
+      --highlight-bg: #3b82f6;
+      --highlight-text: #ffffff;
+      --accent-color: #3b82f6;
+      --dock-bg: rgba(0, 0, 0, 0.98);
+      --dock-shadow: 0 -4px 20px rgba(255, 255, 255, 0.1);
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+    }
+
+    body {
+      background-color: var(--bg-color);
+      color: var(--text-color);
+      font-family: var(--font-family);
+      font-size: var(--font-size);
+      line-height: var(--line-height);
+      min-height: 100vh;
+      overflow-x: hidden;
+      transition: background-color 0.2s ease, color 0.2s ease;
+      padding-top: var(--header-height);
+      padding-bottom: calc(var(--dock-height) + 30px);
+    }
+
+    /* Top App Header */
+    header.app-header {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: var(--header-height);
+      background-color: var(--dock-bg);
+      backdrop-filter: blur(12px);
+      -webkit-backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--surface-border);
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 0 14px;
+      z-index: 100;
+    }
+
+    .header-title-wrap {
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      max-width: 58%;
+    }
+
+    .header-novel-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      opacity: 0.75;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: sans-serif;
+      font-weight: 700;
+    }
+
+    .header-chapter-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-family: sans-serif;
+    }
+
+    .header-actions {
+      display: flex;
+      gap: 8px;
+    }
+
+    .icon-btn {
+      background: var(--surface-color);
+      color: var(--text-color);
+      border: 1px solid var(--surface-border);
+      border-radius: 8px;
+      width: 36px;
+      height: 36px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1rem;
+      transition: all 0.15s ease;
+    }
+    .icon-btn:active {
+      transform: scale(0.92);
+      background: var(--accent-color);
+      color: #fff;
+    }
+
+    /* Main Reader Content */
+    main.reader-container {
+      max-width: 720px;
+      margin: 0 auto;
+      padding: 16px 18px 40px;
+    }
+
+    .chapter-heading {
+      margin-bottom: 1.5rem;
+      text-align: center;
+    }
+    .chapter-heading h1 {
+      font-size: 1.45rem;
+      margin-bottom: 4px;
+      line-height: 1.3;
+    }
+    .chapter-heading .meta {
+      font-family: sans-serif;
+      font-size: 0.8rem;
+      opacity: 0.65;
+    }
+
+    .reader-body p {
+      margin-bottom: 1.35rem;
+      text-align: justify;
+    }
+
+    /* TTS Sentence Highlighting */
+    .sentence-span {
+      display: inline;
+      cursor: pointer;
+      border-radius: 4px;
+      padding: 1px 2px;
+      transition: background-color 0.15s ease;
+    }
+    .sentence-span:active {
+      background-color: rgba(99, 102, 241, 0.2);
+    }
+    .sentence-span.active-speech {
+      background-color: var(--highlight-bg);
+      color: var(--highlight-text);
+      font-weight: 600;
+      box-shadow: 0 0 0 2px var(--highlight-bg);
+    }
+
+    /* Bottom TTS Dock */
+    .tts-dock {
+      position: fixed;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      height: var(--dock-height);
+      background-color: var(--dock-bg);
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      border-top: 1px solid var(--surface-border);
+      box-shadow: var(--dock-shadow);
+      display: flex;
+      flex-direction: column;
+      padding: 6px 14px 10px;
+      z-index: 100;
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    .dock-scrubber-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: sans-serif;
+      font-size: 0.72rem;
+      opacity: 0.85;
+      margin-bottom: 4px;
+    }
+
+    .dock-progress-track {
+      flex: 1;
+      height: 4px;
+      background: var(--surface-border);
+      border-radius: 2px;
+      margin: 0 10px;
+      position: relative;
+      cursor: pointer;
+    }
+    .dock-progress-fill {
+      position: absolute;
+      left: 0;
+      top: 0;
+      bottom: 0;
+      background: var(--accent-color);
+      border-radius: 2px;
+      width: 0%;
+      transition: width 0.1s ease;
+    }
+
+    .dock-controls {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .dock-btn-group {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .play-btn {
+      width: 44px;
+      height: 44px;
+      border-radius: 50%;
+      background: var(--accent-color);
+      color: #fff;
+      border: none;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      font-size: 1.25rem;
+      box-shadow: 0 4px 12px rgba(79, 70, 229, 0.35);
+      transition: transform 0.1s ease;
+    }
+    .play-btn:active {
+      transform: scale(0.92);
+    }
+
+    .audio-tune-chip {
+      background: var(--surface-color);
+      border: 1px solid var(--surface-border);
+      color: var(--text-color);
+      border-radius: 16px;
+      padding: 4px 10px;
+      font-size: 0.75rem;
+      font-family: sans-serif;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    /* ====================================================
+       FIXED ROBUST FULL-VIEWPORT BOTTOM SHEETS & MODALS
+       ==================================================== */
+    .drawer-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0, 0, 0, 0.65);
+      z-index: 9999;
+      display: none;
+      flex-direction: column;
+      justify-content: flex-end; /* Locks sheet directly to the bottom */
+      align-items: center;
+    }
+    .drawer-overlay.active {
+      display: flex !important;
+    }
+
+    .drawer-content {
+      width: 100%;
+      max-width: 600px;
+      background: var(--surface-color);
+      color: var(--text-color);
+      border-top: 1px solid var(--surface-border);
+      border-top-left-radius: 22px;
+      border-top-right-radius: 22px;
+      padding: 16px 18px calc(24px + env(safe-area-inset-bottom, 15px));
+      height: 75vh; /* Standard 75% screen height so options are always above */
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 -8px 30px rgba(0, 0, 0, 0.35);
+      animation: modalSlideUp 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalSlideUp {
+      from { transform: translateY(100%); }
+      to { transform: translateY(0); }
+    }
+
+    .drawer-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid var(--surface-border);
+      flex-shrink: 0;
+    }
+    .drawer-header h3 {
+      font-size: 1.05rem;
+      font-weight: 700;
+      font-family: sans-serif;
+    }
+
+    .drawer-body {
+      flex: 1;
+      overflow-y: auto;
+      -webkit-overflow-scrolling: touch;
+      padding-bottom: 30px;
+    }
+
+    .control-row {
+      margin-bottom: 16px;
+    }
+    .control-label {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.85rem;
+      font-weight: 600;
+      margin-bottom: 6px;
+      font-family: sans-serif;
+      opacity: 0.85;
+    }
+
+    .preset-theme-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 6px;
+    }
+    .theme-pill {
+      border: 2px solid transparent;
+      border-radius: 8px;
+      padding: 8px 4px;
+      text-align: center;
+      font-size: 0.78rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    .theme-pill.active {
+      border-color: var(--accent-color);
+    }
+
+    .color-picker-row {
+      display: flex;
+      gap: 14px;
+      align-items: center;
+    }
+    .color-picker-item {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 0.8rem;
+      font-family: sans-serif;
+    }
+    .color-picker-item input[type="color"] {
+      border: none;
+      width: 28px;
+      height: 28px;
+      border-radius: 50%;
+      cursor: pointer;
+      background: transparent;
+    }
+
+    .font-family-selector {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 6px;
+    }
+    .font-option {
+      background: var(--bg-color);
+      border: 1px solid var(--surface-border);
+      border-radius: 6px;
+      padding: 8px;
+      text-align: center;
+      cursor: pointer;
+      font-size: 0.85rem;
+    }
+    .font-option.active {
+      border-color: var(--accent-color);
+      font-weight: bold;
+    }
+
+    input[type="range"] {
+      width: 100%;
+      accent-color: var(--accent-color);
+      cursor: pointer;
+    }
+
+    select.styled-select {
+      width: 100%;
+      background: var(--bg-color);
+      color: var(--text-color);
+      border: 1px solid var(--surface-border);
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      outline: none;
+    }
+
+    /* Chapter list items in drawer */
+    .drawer-tab-bar {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-shrink: 0;
+    }
+    .drawer-tab-btn {
+      flex: 1;
+      padding: 8px;
+      border-radius: 8px;
+      border: 1px solid var(--surface-border);
+      background: var(--bg-color);
+      color: var(--text-color);
+      font-size: 0.8rem;
+      font-weight: 600;
+      cursor: pointer;
+      font-family: sans-serif;
+    }
+    .drawer-tab-btn.active {
+      background: var(--accent-color);
+      color: #fff;
+      border-color: var(--accent-color);
+    }
+
+    .chapter-list-item {
+      padding: 10px 12px;
+      border-bottom: 1px solid var(--surface-border);
+      cursor: pointer;
+      font-size: 0.88rem;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: sans-serif;
+    }
+    .chapter-list-item:active, .chapter-list-item.current {
+      background: rgba(79, 70, 229, 0.12);
+      color: var(--accent-color);
+      font-weight: bold;
+    }
+
+    .download-bundle-card {
+      background: var(--bg-color);
+      border: 1px solid var(--surface-border);
+      border-radius: 10px;
+      padding: 12px;
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      font-family: sans-serif;
+    }
+    .download-bundle-title {
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .download-bundle-sub {
+      font-size: 0.72rem;
+      opacity: 0.7;
+    }
+    .btn-download {
+      background: var(--accent-color);
+      color: #fff;
+      border: none;
+      padding: 6px 14px;
+      border-radius: 6px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+  </style>
+</head>
+<body data-theme="sepia">
+
+  <!-- Header -->
+  <header class="app-header">
+    <div class="header-title-wrap">
+      <span class="header-novel-title" id="novel-title-el">Infinite Mana In The Apocalypse</span>
+      <span class="header-chapter-title" id="chapter-title-el">Chapter 1</span>
+    </div>
+    <div class="header-actions">
+      <button class="icon-btn" id="open-chapters-btn" title="Chapters">📚</button>
+      <button class="icon-btn" id="open-audio-btn" title="TTS Voices">🎙️</button>
+      <button class="icon-btn" id="open-settings-btn" title="Appearance">Aa</button>
+    </div>
+  </header>
+
+  <!-- Main Story Content -->
+  <main class="reader-container">
+    <div class="chapter-heading">
+      <h1 id="main-chapter-title">Loading Chapter...</h1>
+      <div class="meta" id="main-chapter-meta">Tap any sentence to listen</div>
+    </div>
+    <article class="reader-body" id="reader-content"></article>
+  </main>
+
+  <!-- Floating Bottom TTS Dock -->
+  <div class="tts-dock">
+    <div class="dock-scrubber-bar">
+      <span id="tts-status-text">Ready</span>
+      <div class="dock-progress-track" id="progress-track">
+        <div class="dock-progress-fill" id="progress-fill"></div>
+      </div>
+      <span id="tts-sentence-counter">0 / 0</span>
+    </div>
+
+    <div class="dock-controls">
+      <div class="dock-btn-group">
+        <button class="icon-btn" id="prev-chapter-btn" title="Prev Chapter">⏮</button>
+        <button class="icon-btn" id="prev-sentence-btn" title="Back 1 Sentence">⏪</button>
+      </div>
+
+      <button class="play-btn" id="play-pause-btn" title="Play / Pause TTS">
+        <span id="play-btn-icon">▶</span>
+      </button>
+
+      <div class="dock-btn-group">
+        <button class="icon-btn" id="next-sentence-btn" title="Forward 1 Sentence">⏩</button>
+        <button class="icon-btn" id="next-chapter-btn" title="Next Chapter">⏭</button>
+        <button class="audio-tune-chip" id="speed-chip-btn">1.0x</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Chapters Drawer -->
+  <div class="drawer-overlay" id="chapters-drawer-overlay">
+    <div class="drawer-content">
+      <div class="drawer-header">
+        <h3>Chapters & Downloads</h3>
+        <button class="icon-btn" id="close-chapters-drawer">✕</button>
+      </div>
+
+      <div class="drawer-tab-bar">
+        <button class="drawer-tab-btn active" id="tab-btn-local">📖 Offline Chapters</button>
+        <button class="drawer-tab-btn" id="tab-btn-cloud">☁️ Download Bundles</button>
+      </div>
+
+      <div class="drawer-body">
+        <!-- Local Chapters View -->
+        <div id="local-chapters-view">
+          <div id="chapters-list-container"></div>
+        </div>
+
+        <!-- Cloud Pull View -->
+        <div id="cloud-chapters-view" style="display: none;">
+          <div style="font-family: sans-serif; font-size: 0.8rem; margin-bottom: 12px; opacity: 0.85;">
+            Pull 50-chapter bundles directly into your app for offline reading.
+          </div>
+
+          <div class="control-row">
+            <div class="control-label"><span>GitHub / Cloud Data URL</span></div>
+            <input type="text" id="cloud-source-url" class="styled-select" value="data/" placeholder="e.g. data/ or https://raw.githubusercontent.com/.../data/" />
+          </div>
+
+          <div id="bundles-list-container">
+            <!-- Dynamic 50 chapter bundles -->
+          </div>
+
+          <!-- Custom Range Pull -->
+          <div class="download-bundle-card" style="flex-direction: column; align-items: stretch; gap: 8px;">
+            <div class="download-bundle-title">Custom Chapter Range</div>
+            <div style="display: flex; gap: 8px;">
+              <input type="number" id="custom-start-ch" class="styled-select" placeholder="Start (e.g. 1780)" value="1780" />
+              <input type="number" id="custom-end-ch" class="styled-select" placeholder="End (e.g. 1829)" value="1829" />
+              <button class="btn-download" id="custom-pull-btn">Fetch</button>
+            </div>
+            <div id="pull-status-msg" style="font-size: 0.72rem; color: var(--accent-color);"></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Audio / TTS Tuning Drawer -->
+  <div class="drawer-overlay" id="audio-drawer-overlay">
+    <div class="drawer-content">
+      <div class="drawer-header">
+        <h3>TTS Audio Tuning</h3>
+        <button class="icon-btn" id="close-audio-drawer">✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <div class="control-row">
+          <div class="control-label"><span>Voice Synthesis Engine</span></div>
+          <select class="styled-select" id="voice-select">
+            <option value="">System Default Voice</option>
+          </select>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            <span>Speed</span>
+            <strong id="speed-val-label">1.0x</strong>
+          </div>
+          <input type="range" id="speed-range" min="0.5" max="2.5" step="0.1" value="1.0" />
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            <span>Pitch</span>
+            <strong id="pitch-val-label">1.0</strong>
+          </div>
+          <input type="range" id="pitch-range" min="0.5" max="1.8" step="0.1" value="1.0" />
+        </div>
+
+        <div class="control-row" style="display: flex; align-items: center; justify-content: space-between; padding-top: 6px;">
+          <span style="font-size: 0.85rem; font-family: sans-serif;">Auto-scroll active sentence</span>
+          <input type="checkbox" id="autoscroll-toggle" checked style="width: 20px; height: 20px; accent-color: var(--accent-color);" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Appearance / Typography Drawer -->
+  <div class="drawer-overlay" id="settings-drawer-overlay">
+    <div class="drawer-content">
+      <div class="drawer-header">
+        <h3>Appearance</h3>
+        <button class="icon-btn" id="close-settings-drawer">✕</button>
+      </div>
+
+      <div class="drawer-body">
+        <div class="control-row">
+          <div class="control-label"><span>Theme</span></div>
+          <div class="preset-theme-grid">
+            <div class="theme-pill" data-set-theme="light" style="background: #ffffff; color: #1a1a1a; border: 1px solid #ccc;">Light</div>
+            <div class="theme-pill active" data-set-theme="sepia" style="background: #f4ecd8; color: #433422;">Sepia</div>
+            <div class="theme-pill" data-set-theme="dark" style="background: #18181b; color: #e4e4e7;">Dark</div>
+            <div class="theme-pill" data-set-theme="oled" style="background: #000000; color: #ffffff;">OLED</div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label"><span>Custom Palette</span></div>
+          <div class="color-picker-row">
+            <div class="color-picker-item">
+              <input type="color" id="bg-color-picker" value="#f4ecd8" />
+              <label>Background</label>
+            </div>
+            <div class="color-picker-item">
+              <input type="color" id="text-color-picker" value="#433422" />
+              <label>Text</label>
+            </div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label"><span>Font Family</span></div>
+          <div class="font-family-selector">
+            <div class="font-option active" data-font="Georgia, serif">Georgia</div>
+            <div class="font-option" data-font="sans-serif">System Sans</div>
+            <div class="font-option" data-font="monospace">Monospace</div>
+            <div class="font-option" data-font="'Times New Roman', serif">Times</div>
+          </div>
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            <span>Font Size</span>
+            <strong id="font-size-label">19px</strong>
+          </div>
+          <input type="range" id="font-size-range" min="14" max="32" step="1" value="19" />
+        </div>
+
+        <div class="control-row">
+          <div class="control-label">
+            <span>Line Spacing</span>
+            <strong id="line-height-label">1.75</strong>
+          </div>
+          <input type="range" id="line-height-range" min="1.3" max="2.4" step="0.05" value="1.75" />
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    // State
+    let novelBundle = null;
+    let currentChapterIndex = 0;
+    let sentences = [];
+    let currentSentenceIdx = 0;
+    let isPlaying = false;
+    let autoScrollEnabled = true;
+
+    let ttsSpeed = 1.0;
+    let ttsPitch = 1.0;
+    let selectedVoice = null;
+    let availableBrowserVoices = [];
+
+    const hasAndroidTTS = typeof window.AndroidTTS !== 'undefined';
+
+    // Elements
+    const readerContent = document.getElementById('reader-content');
+    const novelTitleEl = document.getElementById('novel-title-el');
+    const chapterTitleEl = document.getElementById('chapter-title-el');
+    const mainChapterTitle = document.getElementById('main-chapter-title');
+    const mainChapterMeta = document.getElementById('main-chapter-meta');
+
+    const playPauseBtn = document.getElementById('play-pause-btn');
+    const playBtnIcon = document.getElementById('play-btn-icon');
+    const ttsStatusText = document.getElementById('tts-status-text');
+    const ttsCounter = document.getElementById('tts-sentence-counter');
+    const progressFill = document.getElementById('progress-fill');
+    const progressTrack = document.getElementById('progress-track');
+    const speedChipBtn = document.getElementById('speed-chip-btn');
+
+    const chaptersDrawerOverlay = document.getElementById('chapters-drawer-overlay');
+    const audioDrawerOverlay = document.getElementById('audio-drawer-overlay');
+    const settingsDrawerOverlay = document.getElementById('settings-drawer-overlay');
+
+    const chaptersListContainer = document.getElementById('chapters-list-container');
+    const voiceSelect = document.getElementById('voice-select');
+    const speedRange = document.getElementById('speed-range');
+    const speedValLabel = document.getElementById('speed-val-label');
+    const pitchRange = document.getElementById('pitch-range');
+    const pitchValLabel = document.getElementById('pitch-val-label');
+    const autoscrollToggle = document.getElementById('autoscroll-toggle');
+
+    const fontSizeRange = document.getElementById('font-size-range');
+    const fontSizeLabel = document.getElementById('font-size-label');
+    const lineHeightRange = document.getElementById('line-height-range');
+    const lineHeightLabel = document.getElementById('line-height-label');
+
+    // Drawer Tabs
+    const tabBtnLocal = document.getElementById('tab-btn-local');
+    const tabBtnCloud = document.getElementById('tab-btn-cloud');
+    const localChaptersView = document.getElementById('local-chapters-view');
+    const cloudChaptersView = document.getElementById('cloud-chapters-view');
+    const bundlesListContainer = document.getElementById('bundles-list-container');
+
+    tabBtnLocal.onclick = () => {
+      tabBtnLocal.classList.add('active');
+      tabBtnCloud.classList.remove('active');
+      localChaptersView.style.display = 'block';
+      cloudChaptersView.style.display = 'none';
+    };
+
+    tabBtnCloud.onclick = () => {
+      tabBtnCloud.classList.add('active');
+      tabBtnLocal.classList.remove('active');
+      localChaptersView.style.display = 'none';
+      cloudChaptersView.style.display = 'block';
+      renderCloudBundles();
+    };
+
+    // Load bundled novel data
+    async function loadNovelData() {
+      try {
+        let text = "";
+        if (hasAndroidTTS && window.AndroidTTS.getNovelDataJson) {
+          text = window.AndroidTTS.getNovelDataJson();
+        } else {
+          const res = await fetch('novel_data.json');
+          text = await res.text();
+        }
+        novelBundle = JSON.parse(text);
+      } catch (err) {
+        console.error("Failed to load novel_data.json:", err);
+      }
+
+      // Check localStorage for any downloaded chapters
+      try {
+        const extraChapters = JSON.parse(localStorage.getItem('downloaded_chapters') || '[]');
+        if (extraChapters.length > 0 && novelBundle) {
+          const existingIds = new Set(novelBundle.bundled_chapters.map(c => c.chapter_index));
+          extraChapters.forEach(c => {
+            if (!existingIds.has(c.chapter_index)) {
+              novelBundle.bundled_chapters.push(c);
+            }
+          });
+          // sort by chapter_index
+          novelBundle.bundled_chapters.sort((a,b) => a.chapter_index - b.chapter_index);
+        }
+      } catch(e){}
+
+      if (novelBundle && novelBundle.bundled_chapters.length > 0) {
+        novelTitleEl.textContent = novelBundle.novel.title;
+        renderChapter(0);
+        renderChaptersList();
+      }
+    }
+
+    function renderChaptersList() {
+      chaptersListContainer.innerHTML = '';
+      const list = novelBundle.bundled_chapters || [];
+      list.forEach((ch, idx) => {
+        const item = document.createElement('div');
+        item.className = 'chapter-list-item' + (idx === currentChapterIndex ? ' current' : '');
+        item.innerHTML = `<span>${ch.title}</span><span style="opacity:0.6; font-size:0.75rem;">${ch.word_count || 1200} words</span>`;
+        item.onclick = () => {
+          chaptersDrawerOverlay.classList.remove('active');
+          renderChapter(idx);
+        };
+        chaptersListContainer.appendChild(item);
+      });
+    }
+
+    // Render Cloud Bundles UI
+    function renderCloudBundles() {
+      bundlesListContainer.innerHTML = '';
+      // Preset bundles for 1780 to 3000 in chunks of 50
+      const presetBundles = [
+        { start: 1780, end: 1829, title: "Chapters 1780 – 1829 (50 Chapters)" },
+        { start: 1830, end: 1879, title: "Chapters 1830 – 1879 (50 Chapters)" },
+        { start: 1880, end: 1929, title: "Chapters 1880 – 1929 (50 Chapters)" },
+        { start: 1930, end: 1979, title: "Chapters 1930 – 1979 (50 Chapters)" },
+        { start: 1980, end: 2029, title: "Chapters 1980 – 2029 (50 Chapters)" },
+        { start: 2030, end: 2500, title: "Chapters 2030 – 2500 (Batch)" },
+        { start: 2501, end: 3000, title: "Chapters 2501 – 3000 (Batch)" }
+      ];
+
+      presetBundles.forEach(b => {
+        const card = document.createElement('div');
+        card.className = 'download-bundle-card';
+        card.innerHTML = `
+          <div>
+            <div class="download-bundle-title">${b.title}</div>
+            <div class="download-bundle-sub">GitHub Action Bundle • Ch. ${b.start}-${b.end}</div>
+          </div>
+          <button class="btn-download" data-start="${b.start}" data-end="${b.end}">Download</button>
+        `;
+        const btn = card.querySelector('.btn-download');
+        btn.onclick = () => pullBundle(b.start, b.end, btn);
+        bundlesListContainer.appendChild(card);
+      });
+    }
+
+    async function pullBundle(start, end, btnEl) {
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = 'Pulling...';
+      }
+      const baseUrl = document.getElementById('cloud-source-url').value.trim();
+      const bundleFileName = `chapters_${start}_${end}.json`;
+      const fullUrl = baseUrl.endsWith('/') ? `${baseUrl}${bundleFileName}` : `${baseUrl}/${bundleFileName}`;
+
+      try {
+        const res = await fetch(fullUrl);
+        if (!res.ok) throw new Error(`HTTP ${res.status}`);
+        const data = await res.json();
+
+        if (data && data.chapters) {
+          integrateFetchedChapters(data.chapters);
+          if (btnEl) btnEl.textContent = '✅ Added!';
+          alert(`Successfully pulled ${data.chapters.length} chapters!`);
+          tabBtnLocal.click();
+        }
+      } catch (err) {
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = 'Download';
+        }
+        alert(`Could not fetch bundle: ${fullUrl}\nEnsure the file exists in the repo or action output.`);
+      }
+    }
+
+    // Custom Range Fetch Button
+    document.getElementById('custom-pull-btn').onclick = () => {
+      const s = parseInt(document.getElementById('custom-start-ch').value, 10);
+      const e = parseInt(document.getElementById('custom-end-ch').value, 10);
+      if (isNaN(s) || isNaN(e) || s > e) {
+        alert("Please enter a valid start and end chapter.");
+        return;
+      }
+      pullBundle(s, e, document.getElementById('custom-pull-btn'));
+    };
+
+    function integrateFetchedChapters(newChapters) {
+      const stored = JSON.parse(localStorage.getItem('downloaded_chapters') || '[]');
+      const existingMap = new Map();
+      stored.forEach(c => existingMap.set(c.chapter_index, c));
+      newChapters.forEach(c => existingMap.set(c.chapter_index, c));
+      
+      const allExtra = Array.from(existingMap.values());
+      localStorage.setItem('downloaded_chapters', JSON.stringify(allExtra));
+
+      // Merge into active bundle
+      const activeMap = new Map();
+      novelBundle.bundled_chapters.forEach(c => activeMap.set(c.chapter_index, c));
+      newChapters.forEach(c => activeMap.set(c.chapter_index, c));
+      novelBundle.bundled_chapters = Array.from(activeMap.values()).sort((a,b) => a.chapter_index - b.chapter_index);
+
+      renderChaptersList();
+    }
+
+    function renderChapter(chIndex) {
+      stopTTS();
+      currentChapterIndex = chIndex;
+      const chapter = novelBundle.bundled_chapters[chIndex];
+      if (!chapter) return;
+
+      chapterTitleEl.textContent = chapter.title;
+      mainChapterTitle.textContent = chapter.title;
+      readerContent.innerHTML = '';
+      sentences = [];
+
+      let globalIdx = 0;
+      chapter.paragraphs.forEach((pText, pIdx) => {
+        const pEl = document.createElement('p');
+        const pSentences = (chapter.sentences || []).filter(s => s.paragraph_id === pIdx);
+        if (pSentences.length > 0) {
+          pSentences.forEach(s => {
+            const span = document.createElement('span');
+            span.className = 'sentence-span';
+            span.dataset.idx = globalIdx;
+            span.textContent = s.text + ' ';
+            span.onclick = () => jumpToSentence(parseInt(span.dataset.idx, 10));
+            pEl.appendChild(span);
+
+            sentences.push({
+              id: globalIdx,
+              text: s.text,
+              domElement: span
+            });
+            globalIdx++;
+          });
+        } else {
+          pText.split(/(?<=[.!?…])\s+/).forEach(st => {
+            if (!st.trim()) return;
+            const span = document.createElement('span');
+            span.className = 'sentence-span';
+            span.dataset.idx = globalIdx;
+            span.textContent = st.trim() + ' ';
+            span.onclick = () => jumpToSentence(parseInt(span.dataset.idx, 10));
+            pEl.appendChild(span);
+
+            sentences.push({
+              id: globalIdx,
+              text: st.trim(),
+              domElement: span
+            });
+            globalIdx++;
+          });
+        }
+        readerContent.appendChild(pEl);
+      });
+
+      mainChapterMeta.textContent = `${chapter.paragraphs.length} Paragraphs • ${sentences.length} Sentences • Ready to Listen`;
+      currentSentenceIdx = 0;
+      updateProgress();
+      renderChaptersList();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    // TTS Implementation
+    function speakSentence(idx) {
+      if (idx < 0 || idx >= sentences.length) {
+        stopTTS();
+        ttsStatusText.textContent = "Chapter complete";
+        return;
+      }
+
+      currentSentenceIdx = idx;
+      highlightSentence(idx);
+      updateProgress();
+      isPlaying = true;
+      playBtnIcon.textContent = '⏸';
+      ttsStatusText.textContent = `Speaking sentence ${idx + 1}...`;
+
+      const text = sentences[idx].text;
+
+      if (hasAndroidTTS) {
+        window.AndroidTTS.speak(text, idx);
+      } else if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+        const u = new SpeechSynthesisUtterance(text);
+        if (selectedVoice) u.voice = selectedVoice;
+        u.rate = ttsSpeed;
+        u.pitch = ttsPitch;
+        u.onend = () => {
+          if (isPlaying) speakSentence(currentSentenceIdx + 1);
+        };
+        window.speechSynthesis.speak(u);
+      }
+    }
+
+    window.onSpeechDone = function(sentenceId) {
+      if (isPlaying && sentenceId === currentSentenceIdx) {
+        speakSentence(currentSentenceIdx + 1);
+      }
+    };
+
+    function highlightSentence(idx) {
+      document.querySelectorAll('.sentence-span.active-speech').forEach(el => el.classList.remove('active-speech'));
+      const active = sentences[idx];
+      if (active && active.domElement) {
+        active.domElement.classList.add('active-speech');
+        if (autoScrollEnabled) {
+          active.domElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }
+    }
+
+    function stopTTS() {
+      isPlaying = false;
+      playBtnIcon.textContent = '▶';
+      ttsStatusText.textContent = 'Paused';
+      if (hasAndroidTTS) {
+        window.AndroidTTS.stop();
+      } else if ('speechSynthesis' in window) {
+        window.speechSynthesis.cancel();
+      }
+      document.querySelectorAll('.sentence-span.active-speech').forEach(el => el.classList.remove('active-speech'));
+    }
+
+    function jumpToSentence(idx) {
+      currentSentenceIdx = idx;
+      speakSentence(idx);
+    }
+
+    function updateProgress() {
+      const pct = sentences.length ? ((currentSentenceIdx + 1) / sentences.length) * 100 : 0;
+      progressFill.style.width = `${pct}%`;
+      ttsCounter.textContent = `${currentSentenceIdx + 1} / ${sentences.length}`;
+    }
+
+    // Controls
+    playPauseBtn.onclick = () => {
+      if (isPlaying) {
+        stopTTS();
+      } else {
+        speakSentence(currentSentenceIdx);
+      }
+    };
+
+    document.getElementById('prev-sentence-btn').onclick = () => jumpToSentence(Math.max(0, currentSentenceIdx - 1));
+    document.getElementById('next-sentence-btn').onclick = () => jumpToSentence(Math.min(sentences.length - 1, currentSentenceIdx + 1));
+
+    document.getElementById('prev-chapter-btn').onclick = () => {
+      if (currentChapterIndex > 0) renderChapter(currentChapterIndex - 1);
+    };
+    document.getElementById('next-chapter-btn').onclick = () => {
+      if (currentChapterIndex < novelBundle.bundled_chapters.length - 1) {
+        renderChapter(currentChapterIndex + 1);
+      }
+    };
+
+    progressTrack.onclick = (e) => {
+      const rect = progressTrack.getBoundingClientRect();
+      const clickRatio = (e.clientX - rect.left) / rect.width;
+      const targetIdx = Math.floor(clickRatio * sentences.length);
+      jumpToSentence(targetIdx);
+    };
+
+    function setSpeed(v) {
+      ttsSpeed = parseFloat(v);
+      speedValLabel.textContent = `${ttsSpeed.toFixed(1)}x`;
+      speedChipBtn.textContent = `${ttsSpeed.toFixed(1)}x`;
+      speedRange.value = ttsSpeed;
+      if (hasAndroidTTS) window.AndroidTTS.setRate(ttsSpeed);
+      if (isPlaying) speakSentence(currentSentenceIdx);
+    }
+    speedRange.oninput = (e) => setSpeed(e.target.value);
+    speedChipBtn.onclick = () => {
+      const spds = [0.75, 1.0, 1.25, 1.5, 2.0];
+      const cur = spds.indexOf(ttsSpeed);
+      setSpeed(spds[(cur + 1) % spds.length]);
+    };
+
+    pitchRange.oninput = (e) => {
+      ttsPitch = parseFloat(e.target.value);
+      pitchValLabel.textContent = ttsPitch.toFixed(1);
+      if (hasAndroidTTS) window.AndroidTTS.setPitch(ttsPitch);
+      if (isPlaying) speakSentence(currentSentenceIdx);
+    };
+
+    autoscrollToggle.onchange = (e) => autoScrollEnabled = e.target.checked;
+
+    // Drawers Open / Close Handlers
+    document.getElementById('open-chapters-btn').onclick = () => chaptersDrawerOverlay.classList.add('active');
+    document.getElementById('close-chapters-drawer').onclick = () => chaptersDrawerOverlay.classList.remove('active');
+    chaptersDrawerOverlay.onclick = (e) => { if (e.target === chaptersDrawerOverlay) chaptersDrawerOverlay.classList.remove('active'); };
+
+    document.getElementById('open-audio-btn').onclick = () => audioDrawerOverlay.classList.add('active');
+    document.getElementById('close-audio-drawer').onclick = () => audioDrawerOverlay.classList.remove('active');
+    audioDrawerOverlay.onclick = (e) => { if (e.target === audioDrawerOverlay) audioDrawerOverlay.classList.remove('active'); };
+
+    document.getElementById('open-settings-btn').onclick = () => settingsDrawerOverlay.classList.add('active');
+    document.getElementById('close-settings-drawer').onclick = () => settingsDrawerOverlay.classList.remove('active');
+    settingsDrawerOverlay.onclick = (e) => { if (e.target === settingsDrawerOverlay) settingsDrawerOverlay.classList.remove('active'); };
+
+    // Themes
+    document.querySelectorAll('.theme-pill').forEach(p => {
+      p.onclick = () => {
+        document.querySelectorAll('.theme-pill').forEach(x => x.classList.remove('active'));
+        p.classList.add('active');
+        document.body.setAttribute('data-theme', p.dataset.setTheme);
+      };
+    });
+
+    document.getElementById('bg-color-picker').oninput = (e) => {
+      document.body.removeAttribute('data-theme');
+      document.body.style.setProperty('--bg-color', e.target.value);
+      document.body.style.setProperty('--dock-bg', e.target.value);
+    };
+    document.getElementById('text-color-picker').oninput = (e) => {
+      document.body.style.setProperty('--text-color', e.target.value);
+    };
+
+    // Typography
+    document.querySelectorAll('.font-option').forEach(fo => {
+      fo.onclick = () => {
+        document.querySelectorAll('.font-option').forEach(x => x.classList.remove('active'));
+        fo.classList.add('active');
+        document.documentElement.style.setProperty('--font-family', fo.dataset.font);
+      };
+    });
+
+    fontSizeRange.oninput = (e) => {
+      fontSizeLabel.textContent = `${e.target.value}px`;
+      document.documentElement.style.setProperty('--font-size', `${e.target.value}px`);
+    };
+    lineHeightRange.oninput = (e) => {
+      lineHeightLabel.textContent = e.target.value;
+      document.documentElement.style.setProperty('--line-height', e.target.value);
+    };
+
+    // Voices Management & Dynamic Switching
+    function initVoices() {
+      if (hasAndroidTTS && window.AndroidTTS.getVoicesJson) {
+        try {
+          const vList = JSON.parse(window.AndroidTTS.getVoicesJson());
+          if (vList && vList.length > 0) {
+            const currentVal = voiceSelect.value;
+            voiceSelect.innerHTML = '<option value="">System Default Voice</option>';
+            vList.forEach(v => {
+              const opt = document.createElement('option');
+              opt.value = v.name;
+              opt.textContent = `${v.name} • ${v.locale}`;
+              if (v.name === currentVal) opt.selected = true;
+              voiceSelect.appendChild(opt);
+            });
+            voiceSelect.onchange = () => {
+              const chosen = voiceSelect.value;
+              console.log("Switching Android native voice to:", chosen);
+              if (window.AndroidTTS.setVoice) {
+                window.AndroidTTS.setVoice(chosen);
+              }
+              // Immediately re-speak current sentence with the new voice
+              if (isPlaying) {
+                speakSentence(currentSentenceIdx);
+              }
+            };
+          }
+        } catch(e){
+          console.error("Error loading Android voices:", e);
+        }
+      } else if ('speechSynthesis' in window) {
+        availableBrowserVoices = window.speechSynthesis.getVoices();
+        if (availableBrowserVoices.length > 0) {
+          const currentIdx = voiceSelect.selectedIndex;
+          voiceSelect.innerHTML = '';
+          availableBrowserVoices.forEach((v, i) => {
+            const opt = document.createElement('option');
+            opt.value = i;
+            opt.textContent = `${v.name} (${v.lang})`;
+            voiceSelect.appendChild(opt);
+          });
+          if (!selectedVoice) {
+            // Find English voice by default
+            const enIdx = availableBrowserVoices.findIndex(v => v.lang.startsWith('en'));
+            if (enIdx !== -1) {
+              voiceSelect.selectedIndex = enIdx;
+              selectedVoice = availableBrowserVoices[enIdx];
+            } else {
+              selectedVoice = availableBrowserVoices[0];
+            }
+          }
+          voiceSelect.onchange = () => {
+            const idx = parseInt(voiceSelect.value, 10);
+            selectedVoice = availableBrowserVoices[idx] || null;
+            console.log("Switching browser voice to:", selectedVoice ? selectedVoice.name : "null");
+            // Immediately re-speak current sentence with the new voice
+            if (isPlaying) {
+              speakSentence(currentSentenceIdx);
+            }
+          };
+        }
+      }
+    }
+
+    // Android Native TTS Callback when voices finish initializing
+    window.onVoicesLoaded = function() {
+      console.log("Native Android TTS voices loaded signal received.");
+      initVoices();
+    };
+
+    if ('speechSynthesis' in window) {
+      window.speechSynthesis.onvoiceschanged = initVoices;
+    }
+
+    // Initial load + retries for asynchronous native engines
+    loadNovelData().then(initVoices);
+    setTimeout(initVoices, 800);
+    setTimeout(initVoices, 1800);
+  </script>
+</body>
+</html>
