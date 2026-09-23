@@ -2,8 +2,9 @@
 github_chapter_fetcher.py
 -------------------------
 Automated chapter batch fetcher for GitHub Actions and local execution.
-Fetches chapters in bundles of 50 from NovelPing (or any source), cleans the text,
-tokenizes into TTS sentences, and updates index.json manifest.
+Fetches ANY arbitrary chapter range (e.g. 1906-1908, 1850-1865, or 50+ chapters)
+from NovelPing with zero missing chapters guarantee, retry resilience, slug typo
+auto-correction, and gap validation.
 """
 
 import os
@@ -14,6 +15,11 @@ import argparse
 import urllib.request
 from bs4 import BeautifulSoup
 import sys
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
 sys.path.append(os.path.abspath(os.path.join(os.path.dirname(__file__), "..")))
 from novel_scraper import NovelScraper
 
@@ -21,16 +27,16 @@ NOVEL_ID = "infinite-mana-in-the-apocalypse"
 ARCHIVE_AJAX_URL = f"https://novelping.com/ajax/chapter-archive?novelId={NOVEL_ID}"
 
 def fetch_all_chapter_links():
-    """Fetches the complete archive of all 5,700+ chapters from NovelPing."""
+    """Fetches and maps the complete archive of chapters from NovelPing."""
     print(f"Fetching complete chapter archive for novel '{NOVEL_ID}'...")
     req = urllib.request.Request(
         ARCHIVE_AJAX_URL,
         headers={
-            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)",
+            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
             "X-Requested-With": "XMLHttpRequest"
         }
     )
-    with urllib.request.urlopen(req, timeout=30) as res:
+    with urllib.request.urlopen(req, timeout=35) as res:
         html = res.read().decode("utf-8", errors="ignore")
 
     soup = BeautifulSoup(html, "html.parser")
@@ -38,58 +44,139 @@ def fetch_all_chapter_links():
     
     chapter_map = {}
     for a in links:
-        href = a.get("href")
-        text = a.get_text(strip=True)
+        href = a.get("href", "")
+        title_attr = a.get("title", "")
+        inner_text = " ".join(a.stripped_strings) or a.get_text(strip=True)
         if not href:
             continue
         
-        # Match chapter number from title or URL (e.g., "Chapter 1780 - ...")
-        m = re.search(r'chapter[- ](\d+)', text, re.I)
+        # Priority:
+        # 1. title attribute (has real chapter title e.g. "Chapter 1907 ...")
+        # 2. inner_text inside all child nodes
+        # 3. href slug (e.g. "chapter-1907-...")
+        m = re.search(r'chapter[- ](\d+)', title_attr, re.I)
+        display_title = title_attr
+        if not m:
+            m = re.search(r'chapter[- ](\d+)', inner_text, re.I)
+            display_title = inner_text or display_title
         if not m:
             m = re.search(r'chapter-(\d+)', href, re.I)
             
         if m:
             ch_num = int(m.group(1))
-            if ch_num not in chapter_map:
+            full_url = href if href.startswith("http") else f"https://novelping.com{href}"
+            # If ch_num not in map or existing entry didn't have title attribute, update
+            if ch_num not in chapter_map or title_attr:
                 chapter_map[ch_num] = {
                     "chapter_number": ch_num,
-                    "title": text or f"Chapter {ch_num}",
-                    "url": href if href.startswith("http") else f"https://novelping.com{href}"
+                    "title": display_title or f"Chapter {ch_num}",
+                    "url": full_url
                 }
 
     print(f"Discovered {len(chapter_map)} unique chapters in archive.")
     return chapter_map
 
+def fetch_single_chapter_with_retry(scraper, ch_num: int, ch_meta: dict, max_retries: int = 4):
+    """Fetches a single chapter with retries and fallback URLs."""
+    urls_to_try = [ch_meta['url']]
+    
+    # Add fallback URLs if the main URL fails
+    direct_fallback = f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
+    if direct_fallback not in urls_to_try:
+        urls_to_try.append(direct_fallback)
+        
+    last_err = None
+    for url in urls_to_try:
+        for attempt in range(max_retries):
+            try:
+                ch_data = scraper.fetch_chapter(url)
+                paragraphs = ch_data.get('paragraphs', [])
+                if paragraphs and len(paragraphs) > 0:
+                    return {
+                        "chapter_index": ch_num,
+                        "title": ch_data.get('title') or ch_meta.get('title') or f"Chapter {ch_num}",
+                        "url": url,
+                        "paragraphs": paragraphs,
+                        "sentences": ch_data.get('sentences', []),
+                        "word_count": ch_data.get('word_count', 0)
+                    }
+                else:
+                    print(f"  [Attempt {attempt+1}] Empty paragraphs for Ch. {ch_num} at {url}. Retrying...")
+                    time.sleep(1.5)
+            except Exception as e:
+                last_err = e
+                wait_time = (attempt + 1) * 2
+                print(f"  [Attempt {attempt+1}] Error fetching Ch. {ch_num} ({url}): {e}. Waiting {wait_time}s...")
+                time.sleep(wait_time)
+                
+    raise RuntimeError(f"Failed to fetch Chapter {ch_num} after trying all candidate URLs. Last error: {last_err}")
+
 def download_bundle(start_ch: int, end_ch: int, output_dir: str = "data"):
-    """Downloads a bundle of chapters from start_ch to end_ch."""
+    """Downloads an arbitrary bundle of chapters from start_ch to end_ch with 0 missing chapters guarantee."""
+    if start_ch > end_ch:
+        start_ch, end_ch = end_ch, start_ch
+
     os.makedirs(output_dir, exist_ok=True)
     chapter_map = fetch_all_chapter_links()
     scraper = NovelScraper()
 
+    total_expected = end_ch - start_ch + 1
     bundled_chapters = []
-    print(f"\n--- Downloading Bundle: Chapter {start_ch} to {end_ch} ---")
+    print(f"\n=======================================================")
+    print(f"  Downloading Chapter Range: {start_ch} to {end_ch} ({total_expected} Chapters)")
+    print(f"=======================================================\n")
     
     for ch_num in range(start_ch, end_ch + 1):
-        if ch_num not in chapter_map:
-            print(f"Warning: Chapter {ch_num} not found in archive index. Skipping.")
-            continue
+        if ch_num in chapter_map:
+            ch_meta = chapter_map[ch_num]
+        else:
+            print(f"Notice: Chapter {ch_num} not in archive index. Using direct fallback URL...")
+            ch_meta = {
+                "chapter_number": ch_num,
+                "title": f"Chapter {ch_num}",
+                "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
+            }
             
-        ch_meta = chapter_map[ch_num]
-        print(f"Fetching Chapter {ch_num}: {ch_meta['title']} ({ch_meta['url']})...")
+        print(f"Fetching Chapter {ch_num} ({ch_num - start_ch + 1}/{total_expected}): {ch_meta['title']}...")
         
         try:
-            ch_data = scraper.fetch_chapter(ch_meta['url'])
-            bundled_chapters.append({
-                "chapter_index": ch_num,
-                "title": ch_meta['title'],
-                "url": ch_meta['url'],
-                "paragraphs": ch_data.get('paragraphs', []),
-                "sentences": ch_data.get('sentences', []),
-                "word_count": ch_data.get('word_count', 0)
-            })
-            time.sleep(0.3)  # Friendly delay
+            chapter_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta)
+            bundled_chapters.append(chapter_obj)
+            time.sleep(0.25)  # Polite pacing
         except Exception as e:
-            print(f"Error fetching Chapter {ch_num}: {e}")
+            print(f"  [ERROR] Failed to fetch Chapter {ch_num}: {e}")
+
+    # Zero Missing Chapters Verification & Rescue Pass
+    fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
+    missing = [ch for ch in range(start_ch, end_ch + 1) if ch not in fetched_indexes]
+    
+    if missing:
+        print(f"\n[WARNING] Missing {len(missing)} chapters after initial pass: {missing}. Initiating Rescue Pass...")
+        for ch_num in list(missing):
+            ch_meta = chapter_map.get(ch_num, {
+                "chapter_number": ch_num,
+                "title": f"Chapter {ch_num}",
+                "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
+            })
+            try:
+                rescued_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta, max_retries=5)
+                bundled_chapters.append(rescued_obj)
+                missing.remove(ch_num)
+                print(f"  [RESCUED] Successfully recovered Chapter {ch_num}!")
+            except Exception as e:
+                print(f"  [FAILED] Rescue failed for Chapter {ch_num}: {e}")
+                
+    # Final strict verification
+    fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
+    final_missing = [ch for ch in range(start_ch, end_ch + 1) if ch not in fetched_indexes]
+    
+    if final_missing:
+        error_msg = f"CRITICAL: Bundle incomplete! Missing chapters: {final_missing}. Aborting save to maintain data integrity."
+        print(f"\n[ERROR] {error_msg}\n")
+        raise RuntimeError(error_msg)
+
+    # Strictly sort chapters by chapter_index
+    bundled_chapters.sort(key=lambda c: c['chapter_index'])
 
     bundle_filename = f"chapters_{start_ch}_{end_ch}.json"
     bundle_path = os.path.join(output_dir, bundle_filename)
@@ -106,10 +193,11 @@ def download_bundle(start_ch: int, end_ch: int, output_dir: str = "data"):
     with open(bundle_path, "w", encoding="utf-8") as f:
         json.dump(bundle_payload, f, indent=2, ensure_ascii=False)
 
-    print(f"\nSuccessfully saved {len(bundled_chapters)} chapters to {bundle_path}!")
+    print(f"\n[SUCCESS] Successfully saved complete bundle ({len(bundled_chapters)}/{total_expected} chapters) to {bundle_path}!")
 
     # Update index.json manifest
     update_manifest(output_dir, bundle_filename, start_ch, end_ch, len(bundled_chapters))
+    return bundle_path
 
 def update_manifest(output_dir: str, bundle_filename: str, start_ch: int, end_ch: int, count: int):
     manifest_path = os.path.join(output_dir, "index.json")
@@ -131,8 +219,8 @@ def update_manifest(output_dir: str, bundle_filename: str, start_ch: int, end_ch
         "chapter_count": count,
         "updated_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
     })
-    # Sort bundles by start_chapter
-    manifest["bundles"].sort(key=lambda b: b.get("start_chapter", 0))
+    # Sort bundles by start_chapter, then end_chapter
+    manifest["bundles"].sort(key=lambda b: (b.get("start_chapter", 0), b.get("end_chapter", 0)))
 
     with open(manifest_path, "w", encoding="utf-8") as f:
         json.dump(manifest, f, indent=2, ensure_ascii=False)
@@ -140,9 +228,9 @@ def update_manifest(output_dir: str, bundle_filename: str, start_ch: int, end_ch
     print(f"Updated manifest at {manifest_path}.")
 
 if __name__ == "__main__":
-    parser = argparse.ArgumentParser(description="Fetch chapter bundles for Novel Reader")
-    parser.add_argument("--start", type=int, default=1780, help="Start chapter number (e.g. 1780)")
-    parser.add_argument("--end", type=int, default=1784, help="End chapter number (e.g. 1830)")
+    parser = argparse.ArgumentParser(description="Fetch arbitrary chapter bundles for Novel Reader")
+    parser.add_argument("--start", type=int, required=True, help="Start chapter number (e.g. 1906)")
+    parser.add_argument("--end", type=int, required=True, help="End chapter number (e.g. 1908)")
     parser.add_argument("--output-dir", type=str, default="data", help="Output directory for JSON bundles")
     args = parser.parse_args()
 

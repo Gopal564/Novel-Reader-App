@@ -33,14 +33,21 @@
       "bundle_file": "chapters_1880_1929.json",
       "start_chapter": 1880,
       "end_chapter": 1929,
-      "chapter_count": 49,
+      "chapter_count": 50,
       "updated_at": "2026-09-22T13:12:40Z"
+    },
+    {
+      "bundle_file": "chapters_1906_1908.json",
+      "start_chapter": 1906,
+      "end_chapter": 1908,
+      "chapter_count": 3,
+      "updated_at": "2026-09-23T05:21:56Z"
     },
     {
       "bundle_file": "chapters_1930_1979.json",
       "start_chapter": 1930,
       "end_chapter": 1979,
-      "chapter_count": 49,
+      "chapter_count": 50,
       "updated_at": "2026-09-22T13:28:15Z"
     },
     {

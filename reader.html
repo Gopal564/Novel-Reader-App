@@ -751,14 +751,20 @@
           </div>
 
           <!-- Custom Range Pull -->
-          <div class="download-bundle-card" style="flex-direction: column; align-items: stretch; gap: 10px; cursor: default;">
+          <div class="download-bundle-card" style="flex-direction: column; align-items: stretch; gap: 12px; cursor: default;">
             <div class="download-bundle-title">Custom Chapter Range</div>
-            <div style="font-size: 0.75rem; opacity: 0.75;">Enter any chapter range (e.g. 1830 to 1879) to fetch from GitHub:</div>
-            <div style="display: flex; gap: 8px;">
-              <input type="number" id="custom-start-ch" class="styled-select" placeholder="Start" value="1830" style="flex: 1;" />
-              <input type="number" id="custom-end-ch" class="styled-select" placeholder="End" value="1879" style="flex: 1;" />
-              <button class="btn-download" id="custom-pull-btn">Fetch ⬇</button>
+            <div style="font-size: 0.78rem; opacity: 0.8; line-height: 1.4;">Fetch any number of chapters (e.g. 1906 to 1908, 1850 to 1865, or a single chapter):</div>
+            <div style="display: flex; gap: 10px; width: 100%;">
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 0.72rem; font-weight: 600; margin-bottom: 4px; opacity: 0.85;">Start Chapter</label>
+                <input type="number" id="custom-start-ch" class="styled-select" placeholder="e.g. 1906" value="1906" style="width: 100%; box-sizing: border-box;" />
+              </div>
+              <div style="flex: 1;">
+                <label style="display: block; font-size: 0.72rem; font-weight: 600; margin-bottom: 4px; opacity: 0.85;">End Chapter</label>
+                <input type="number" id="custom-end-ch" class="styled-select" placeholder="e.g. 1908" value="1908" style="width: 100%; box-sizing: border-box;" />
+              </div>
             </div>
+            <button class="btn-download" id="custom-pull-btn" style="width: 100%; box-sizing: border-box; justify-content: center; padding: 11px 16px; font-size: 0.88rem; font-weight: 700; margin-top: 2px;">Fetch Chapters ⬇</button>
             <div id="pull-status-msg" style="font-size: 0.75rem; color: var(--accent-color);"></div>
           </div>
         </div>
@@ -1354,6 +1360,10 @@
     }
 
     async function pullBundle(start, end, btnEl) {
+      if (start > end) {
+        const tmp = start; start = end; end = tmp;
+      }
+      const totalCount = end - start + 1;
       const statusBanner = document.getElementById('cloud-status-banner');
       const defaultBase = 'https://raw.githubusercontent.com/Gopal564/Novel-Reader-App/main/data/';
       let baseUrl = (document.getElementById('cloud-source-url').value || '').trim();
@@ -1361,8 +1371,6 @@
         baseUrl = defaultBase;
         document.getElementById('cloud-source-url').value = defaultBase;
       }
-      const bundleFileName = `chapters_${start}_${end}.json`;
-      const bundleUrl = baseUrl.endsWith('/') ? `${baseUrl}${bundleFileName}` : `${baseUrl}/${bundleFileName}`;
 
       const updateBanner = (msg, bg, col) => {
         if (!statusBanner) return;
@@ -1372,15 +1380,9 @@
         statusBanner.innerHTML = msg;
       };
 
-      if (btnEl) {
-        btnEl.disabled = true;
-        btnEl.textContent = '⏳ Checking...';
-      }
-
-      updateBanner(`⏳ Checking repository for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
-
-      async function tryFetchBundle() {
-        const fullUrl = `${bundleUrl}?t=${Date.now()}`;
+      // Helper to fetch any JSON file from repository
+      async function fetchJsonFromRepo(fileName) {
+        const fullUrl = `${baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'}${fileName}?t=${Date.now()}`;
         if (hasAndroidTTS && window.AndroidTTS && window.AndroidTTS.downloadUrl) {
           const nativeRes = window.AndroidTTS.downloadUrl(fullUrl);
           if (nativeRes.startsWith("HTTP_ERROR:") || nativeRes.startsWith("EXCEPTION:")) {
@@ -1399,8 +1401,41 @@
         }
       }
 
-      // Step 1: Check if already available on GitHub
-      const initialFetch = await tryFetchBundle();
+      if (btnEl) {
+        btnEl.disabled = true;
+        btnEl.textContent = '⏳ Checking...';
+      }
+
+      // 1. Check if all requested chapters are already in the local library!
+      const localChapters = novelBundle?.bundled_chapters || [];
+      const localIndexes = new Set(localChapters.map(c => c.chapter_index));
+      const missingLocally = [];
+      for (let i = start; i <= end; i++) {
+        if (!localIndexes.has(i)) missingLocally.push(i);
+      }
+
+      if (missingLocally.length === 0) {
+        updateBanner(`✅ Chapters ${start}–${end} are already in your Offline Library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
+        if (btnEl) {
+          btnEl.disabled = false;
+          btnEl.textContent = '✅ In Library';
+        }
+        const targetChIdx = localChapters.findIndex(c => c.chapter_index === start);
+        if (targetChIdx !== -1) {
+          setTimeout(() => {
+            tabBtnLocal.click();
+            renderChapter(targetChIdx);
+            window.closeAllDrawers();
+          }, 600);
+        }
+        return;
+      }
+
+      updateBanner(`⏳ Checking cloud repository for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
+
+      // 2. Try fetching the exact bundle file: chapters_{start}_{end}.json
+      const exactFileName = `chapters_${start}_${end}.json`;
+      const initialFetch = await fetchJsonFromRepo(exactFileName);
       if (initialFetch.ok) {
         try {
           const data = JSON.parse(initialFetch.text);
@@ -1413,7 +1448,12 @@
               btnEl.disabled = false;
             }
             renderCloudBundles();
-            setTimeout(() => tabBtnLocal.click(), 1200);
+            const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
+            setTimeout(() => {
+              tabBtnLocal.click();
+              if (targetChIdx !== -1) renderChapter(targetChIdx);
+              window.closeAllDrawers();
+            }, 800);
             return;
           }
         } catch(e) {
@@ -1421,14 +1461,55 @@
         }
       }
 
-      // Step 2: Bundle not yet generated on GitHub (404)
+      // 3. If exact file not found, check if an existing repo bundle covers [start..end]
+      const prebuiltRanges = [
+        { s: 1780, e: 1829, f: 'chapters_1780_1829.json' },
+        { s: 1830, e: 1879, f: 'chapters_1830_1879.json' },
+        { s: 1880, e: 1929, f: 'chapters_1880_1929.json' },
+        { s: 1906, e: 1908, f: 'chapters_1906_1908.json' },
+        { s: 1930, e: 1979, f: 'chapters_1930_1979.json' },
+        { s: 1980, e: 2029, f: 'chapters_1980_2029.json' },
+        { s: 2030, e: 2079, f: 'chapters_2030_2079.json' }
+      ];
+
+      const enclosingBundle = prebuiltRanges.find(b => b.s <= start && b.e >= end);
+      if (enclosingBundle) {
+        updateBanner(`⏳ Downloading bundle ${enclosingBundle.s}–${enclosingBundle.e} containing Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
+        const bundleFetch = await fetchJsonFromRepo(enclosingBundle.f);
+        if (bundleFetch.ok) {
+          try {
+            const data = JSON.parse(bundleFetch.text);
+            if (data && data.chapters && data.chapters.length > 0) {
+              integrateFetchedChapters(data.chapters);
+              updateBanner(`✅ Imported Chapters ${start}–${end} (from bundle ${enclosingBundle.s}–${enclosingBundle.e}) into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
+              if (btnEl) {
+                btnEl.textContent = '✅ Read';
+                btnEl.className = 'btn-download installed';
+                btnEl.disabled = false;
+              }
+              renderCloudBundles();
+              const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
+              setTimeout(() => {
+                tabBtnLocal.click();
+                if (targetChIdx !== -1) renderChapter(targetChIdx);
+                window.closeAllDrawers();
+              }, 800);
+              return;
+            }
+          } catch(e) {
+            console.error("Bundle parse error:", e);
+          }
+        }
+      }
+
+      // 4. Bundle is not yet generated on GitHub (404)
       const ghToken = (localStorage.getItem('github_token') || '').trim();
 
       if (!ghToken) {
         updateBanner(
-          `⚠️ <strong>Chapters ${start}–${end} have not been generated yet in the GitHub repository.</strong><br>` +
+          `⚠️ <strong>Chapters ${start}–${end} (${totalCount} ch) are not yet in the cloud repository.</strong><br>` +
           `To trigger the GitHub Action runner automatically from your phone, paste your GitHub Personal Access Token in the <strong>⚡ On-Demand Cloud Runner</strong> box above.<br>` +
-          `<span style="font-size:0.75rem; opacity:0.85;">Or run from your PC: <code>gh workflow run fetch_chapters.yml -f start_chapter=${start} -f end_chapter=${end}</code></span>`,
+          `<span style="font-size:0.75rem; opacity:0.85;">Or run from PC terminal: <code>gh workflow run fetch_chapters.yml -f start_chapter=${start} -f end_chapter=${end}</code></span>`,
           'rgba(245, 158, 11, 0.15)',
           '#b45309'
         );
@@ -1447,7 +1528,7 @@
         return;
       }
 
-      // Step 3: Launch GitHub Action Runner in cloud!
+      // 5. Launch GitHub Action Runner in cloud!
       try {
         updateBanner(`🚀 Dispatching GitHub Action runner for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.15)', 'var(--accent-color)');
         if (btnEl) btnEl.textContent = '🚀 Launching...';
@@ -1455,7 +1536,7 @@
         await triggerGitHubWorkflow(start, end, ghToken);
 
         let elapsed = 0;
-        const maxWait = 180; // 3 minutes timeout
+        const maxWait = 240; // 4 minutes timeout
 
         updateBanner(
           `⏳ <strong>GitHub Action Runner Started!</strong><br>` +
@@ -1477,7 +1558,7 @@
             'var(--accent-color)'
           );
 
-          const pollFetch = await tryFetchBundle();
+          const pollFetch = await fetchJsonFromRepo(exactFileName);
           if (pollFetch.ok) {
             clearInterval(pollTimer);
             try {
@@ -1491,7 +1572,12 @@
                   btnEl.disabled = false;
                 }
                 renderCloudBundles();
-                setTimeout(() => tabBtnLocal.click(), 1200);
+                const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
+                setTimeout(() => {
+                  tabBtnLocal.click();
+                  if (targetChIdx !== -1) renderChapter(targetChIdx);
+                  window.closeAllDrawers();
+                }, 800);
                 return;
               }
             } catch(e) {
@@ -1533,7 +1619,7 @@
     document.getElementById('custom-pull-btn').onclick = () => {
       const s = parseInt(document.getElementById('custom-start-ch').value, 10);
       const e = parseInt(document.getElementById('custom-end-ch').value, 10);
-      if (isNaN(s) || isNaN(e) || s > e) {
+      if (isNaN(s) || isNaN(e)) {
         alert("Please enter a valid start and end chapter.");
         return;
       }
@@ -1546,7 +1632,7 @@
       stored.forEach(c => existingMap.set(c.chapter_index, c));
       newChapters.forEach(c => existingMap.set(c.chapter_index, c));
       
-      const allExtra = Array.from(existingMap.values());
+      const allExtra = Array.from(existingMap.values()).sort((a,b) => a.chapter_index - b.chapter_index);
       localStorage.setItem('downloaded_chapters', JSON.stringify(allExtra));
 
       // Merge into active bundle

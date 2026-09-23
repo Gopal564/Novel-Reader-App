@@ -36,11 +36,33 @@ class NovelScraper:
             re.compile(r"^\s*advertisement\s*$", re.IGNORECASE),
         ]
 
-    def _fetch_html(self, url: str) -> str:
-        """Fetch raw HTML with standard headers and error handling."""
-        req = urllib.request.Request(url, headers=self.headers)
-        with urllib.request.urlopen(req, timeout=15) as response:
-            return response.read().decode("utf-8", errors="replace")
+    def _fetch_html(self, url: str, max_retries: int = 4) -> str:
+        """Fetch raw HTML with retry backoff and error handling."""
+        import urllib.error
+        for attempt in range(max_retries):
+            try:
+                req = urllib.request.Request(url, headers=self.headers)
+                with urllib.request.urlopen(req, timeout=25) as response:
+                    return response.read().decode("utf-8", errors="replace")
+            except urllib.error.HTTPError as e:
+                if e.code == 429:
+                    wait_time = (attempt + 1) * 3
+                    print(f"  [Rate Limit 429] Waiting {wait_time}s before retry ({attempt+1}/{max_retries}) for {url}...")
+                    time.sleep(wait_time)
+                elif attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"  [HTTP {e.code}] Retrying in {wait_time}s ({attempt+1}/{max_retries}) for {url}...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+            except Exception as e:
+                if attempt < max_retries - 1:
+                    wait_time = (attempt + 1) * 2
+                    print(f"  [Network Error: {e}] Retrying in {wait_time}s ({attempt+1}/{max_retries}) for {url}...")
+                    time.sleep(wait_time)
+                else:
+                    raise
+        raise RuntimeError(f"Failed to fetch HTML from {url} after {max_retries} attempts.")
 
     def extract_novel_metadata(self, book_url: str) -> Dict:
         """
@@ -124,9 +146,9 @@ class NovelScraper:
         chapter_title = title_el.get_text(strip=True) if title_el else ""
 
         # Content container
-        content_container = soup.select_one("#chr-content, .chapter-content, .reading-content")
+        content_container = soup.select_one("#chr-content, .chapter-content, .reading-content, #chapter-content, .chapter-inner, .entry-content")
         if not content_container:
-            content_container = soup.select_one("div.content, article")
+            content_container = soup.select_one("div.content, article, main, .text-left")
 
         if not content_container:
             return {"title": chapter_title, "paragraphs": [], "sentences": []}
