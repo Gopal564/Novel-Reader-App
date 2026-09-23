@@ -2,6 +2,7 @@ package com.example.infinitereader
 
 import android.content.Context
 import android.os.Bundle
+import android.os.PowerManager
 import android.speech.tts.TextToSpeech
 import android.speech.tts.UtteranceProgressListener
 import android.speech.tts.Voice
@@ -15,9 +16,17 @@ import java.util.Locale
 class TTSBridge(private val context: Context, private val webView: WebView) : TextToSpeech.OnInitListener {
     private var tts: TextToSpeech? = null
     private var isInitialized = false
+    private var wakeLock: PowerManager.WakeLock? = null
 
     init {
         tts = TextToSpeech(context, this)
+        try {
+            val pm = context.getSystemService(Context.POWER_SERVICE) as? PowerManager
+            wakeLock = pm?.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "InfiniteReader:TTSWakeLock")
+            wakeLock?.setReferenceCounted(false)
+        } catch (e: Exception) {
+            Log.e("TTSBridge", "Failed to create wakeLock: ${e.message}")
+        }
     }
 
     override fun onInit(status: Int) {
@@ -67,6 +76,13 @@ class TTSBridge(private val context: Context, private val webView: WebView) : Te
     @JavascriptInterface
     fun speak(text: String, sentenceId: Int) {
         if (!isInitialized) return
+        try {
+            if (wakeLock?.isHeld == false) {
+                wakeLock?.acquire(15 * 60 * 1000L) // 15 mins max safety timeout
+            }
+        } catch (e: Exception) {
+            Log.e("TTSBridge", "Error acquiring wakeLock: ${e.message}")
+        }
         val params = Bundle()
         tts?.speak(text, TextToSpeech.QUEUE_FLUSH, params, sentenceId.toString())
     }
@@ -74,6 +90,13 @@ class TTSBridge(private val context: Context, private val webView: WebView) : Te
     @JavascriptInterface
     fun stop() {
         tts?.stop()
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: Exception) {
+            Log.e("TTSBridge", "Error releasing wakeLock: ${e.message}")
+        }
     }
 
     @JavascriptInterface
@@ -181,6 +204,13 @@ class TTSBridge(private val context: Context, private val webView: WebView) : Te
 
     fun shutdown() {
         tts?.stop()
+        try {
+            if (wakeLock?.isHeld == true) {
+                wakeLock?.release()
+            }
+        } catch (e: Exception) {
+            Log.e("TTSBridge", "Error releasing wakeLock: ${e.message}")
+        }
         tts?.shutdown()
     }
 }

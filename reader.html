@@ -702,6 +702,15 @@
       <div class="drawer-body">
         <!-- Local Chapters View -->
         <div id="local-chapters-view">
+          <!-- Quick Chapter Jump Bar -->
+          <div style="background: var(--surface-color); border: 1px solid var(--surface-border); border-radius: 12px; padding: 10px 12px; margin-bottom: 12px; display: flex; flex-direction: column; gap: 8px;">
+            <div style="display: flex; gap: 8px; align-items: center;">
+              <input type="number" id="quick-jump-input" class="styled-select" placeholder="Jump to Chapter # (e.g. 1880)" style="flex: 1; padding: 9px 12px; font-size: 0.9rem; font-weight: 600;" />
+              <button class="btn-download" id="quick-jump-go-btn" style="min-width: 68px; padding: 9px 14px; font-size: 0.85rem;">Go ➔</button>
+            </div>
+            <div id="quick-jump-msg" style="font-size: 0.76rem; display: none; line-height: 1.35;"></div>
+          </div>
+
           <div id="chapters-list-container"></div>
         </div>
 
@@ -1103,23 +1112,155 @@
 
       if (novelBundle && novelBundle.bundled_chapters.length > 0) {
         novelTitleEl.textContent = novelBundle.novel.title;
-        renderChapter(0);
+
+        // Restore last read chapter & sentence
+        const savedChNum = parseInt(localStorage.getItem('last_read_chapter_num') || '-1', 10);
+        const savedChIdx = parseInt(localStorage.getItem('last_read_chapter_index') || '0', 10);
+        let resumeIdx = 0;
+        if (savedChNum > 0) {
+          const found = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === savedChNum);
+          if (found !== -1) resumeIdx = found;
+        } else if (savedChIdx >= 0 && savedChIdx < novelBundle.bundled_chapters.length) {
+          resumeIdx = savedChIdx;
+        }
+
+        renderChapter(resumeIdx);
+
+        const savedSentIdx = parseInt(localStorage.getItem('last_read_sentence_index') || '0', 10);
+        if (savedSentIdx > 0 && savedSentIdx < sentences.length) {
+          currentSentenceIdx = savedSentIdx;
+          highlightSentence(savedSentIdx);
+          updateProgress();
+        }
+
         renderChaptersList();
       }
     }
 
-    function renderChaptersList() {
+    function getChapterDisplayName(ch) {
+      if (!ch) return 'Unknown Chapter';
+      if (ch.title && ch.title.length > 15 && !/^Chapter\s+\d+$/i.test(ch.title.trim())) {
+        return ch.title.trim();
+      }
+      if (ch.paragraphs && ch.paragraphs[0]) {
+        const p0 = ch.paragraphs[0].trim();
+        const m = p0.match(/^Chapter\s+(\d+)\s*[:\-\s]\s*(.+)$/i) || p0.match(/^Chapter\s+(\d+)\s+([A-Za-z].+)$/i);
+        if (m && m[2] && m[2].length < 80) {
+          return `Chapter ${m[1]} - ${m[2].trim()}`;
+        }
+      }
+      if (ch.url) {
+        const slug = ch.url.split('/').pop().replace(/\.html?$/i, '');
+        const m = slug.match(/^chapter-(\d+)-(.+)$/i);
+        if (m) {
+          const words = m[2].split('-').map(w => {
+            if (/^(i|ii|iii|iv|v|vi|vii|viii|ix|x|l|ll|lll)$/i.test(w)) {
+              return w.toUpperCase().replace(/L/g, 'I');
+            }
+            return w.charAt(0).toUpperCase() + w.slice(1);
+          }).join(' ');
+          return `Chapter ${m[1]} - ${words}`;
+        }
+      }
+      return ch.title || `Chapter ${ch.chapter_index || ''}`;
+    }
+
+    function renderChaptersList(filter = '') {
       chaptersListContainer.innerHTML = '';
-      const list = novelBundle.bundled_chapters || [];
+      const list = novelBundle?.bundled_chapters || [];
+      const q = filter.trim().toLowerCase();
+
       list.forEach((ch, idx) => {
+        const fullTitle = getChapterDisplayName(ch);
+        const chNum = (ch.chapter_index !== undefined ? ch.chapter_index : idx + 1).toString();
+        if (q && !fullTitle.toLowerCase().includes(q) && !chNum.includes(q)) {
+          return;
+        }
+
         const item = document.createElement('div');
         item.className = 'chapter-list-item' + (idx === currentChapterIndex ? ' current' : '');
-        item.innerHTML = `<span>${ch.title}</span><span style="opacity:0.6; font-size:0.75rem;">${ch.word_count || 1200} words</span>`;
+        item.innerHTML = `
+          <div style="display:flex; flex-direction:column; overflow:hidden; gap:2px; flex:1; padding-right:10px;">
+            <span style="font-weight:600; font-size:0.88rem; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${fullTitle}</span>
+            <span style="opacity:0.6; font-size:0.73rem;">Chapter ${chNum} • ${ch.word_count || 1200} words</span>
+          </div>
+          <span style="font-size:0.8rem; opacity:0.4;">➔</span>
+        `;
         item.onclick = () => {
           window.closeAllDrawers();
           renderChapter(idx);
         };
         chaptersListContainer.appendChild(item);
+      });
+
+      if (chaptersListContainer.children.length === 0) {
+        chaptersListContainer.innerHTML = `<div style="text-align:center; padding: 2rem 1rem; opacity:0.6; font-size:0.85rem;">No matching chapters found.</div>`;
+      }
+    }
+
+    // Quick Chapter Jump
+    const quickJumpInput = document.getElementById('quick-jump-input');
+    const quickJumpGoBtn = document.getElementById('quick-jump-go-btn');
+    const quickJumpMsg = document.getElementById('quick-jump-msg');
+
+    function performQuickJump() {
+      if (!quickJumpInput) return;
+      const targetChNum = parseInt(quickJumpInput.value.trim(), 10);
+      if (isNaN(targetChNum)) {
+        if (quickJumpMsg) {
+          quickJumpMsg.style.display = 'block';
+          quickJumpMsg.style.color = '#ef4444';
+          quickJumpMsg.textContent = 'Please enter a valid chapter number.';
+        }
+        return;
+      }
+
+      const list = novelBundle?.bundled_chapters || [];
+      const targetIndex = list.findIndex(c => c.chapter_index === targetChNum);
+
+      if (targetIndex !== -1) {
+        if (quickJumpMsg) quickJumpMsg.style.display = 'none';
+        window.closeAllDrawers();
+        renderChapter(targetIndex);
+        window.scrollTo({ top: 0, behavior: 'smooth' });
+      } else {
+        let minCh = 1, maxCh = 1;
+        if (list.length > 0) {
+          minCh = list[0].chapter_index;
+          maxCh = list[list.length - 1].chapter_index;
+        }
+        if (quickJumpMsg) {
+          quickJumpMsg.style.display = 'block';
+          quickJumpMsg.style.color = 'var(--text-color)';
+          quickJumpMsg.innerHTML = `Chapter <strong>${targetChNum}</strong> is not in offline library (Library has Ch. ${minCh}–${maxCh}). <a href="javascript:void(0)" id="quick-jump-to-cloud-link" style="color: var(--accent-color); font-weight: 700; text-decoration: underline;">Switch to Download Bundles ☁️</a>`;
+          const cloudLink = document.getElementById('quick-jump-to-cloud-link');
+          if (cloudLink) {
+            cloudLink.onclick = () => {
+              tabBtnCloud.click();
+              const customStart = document.getElementById('custom-start-ch');
+              const customEnd = document.getElementById('custom-end-ch');
+              if (customStart && customEnd) {
+                const s = Math.floor(targetChNum / 50) * 50;
+                customStart.value = s;
+                customEnd.value = s + 49;
+              }
+            };
+          }
+        }
+      }
+    }
+
+    if (quickJumpGoBtn) quickJumpGoBtn.onclick = performQuickJump;
+    if (quickJumpInput) {
+      quickJumpInput.addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          performQuickJump();
+        }
+      });
+      quickJumpInput.addEventListener('input', (e) => {
+        const q = e.target.value.trim().toLowerCase();
+        renderChaptersList(q);
       });
     }
 
@@ -1451,8 +1592,17 @@
       const chapter = novelBundle.bundled_chapters[chIndex];
       if (!chapter) return;
 
-      chapterTitleEl.textContent = chapter.title;
-      mainChapterTitle.textContent = chapter.title;
+      const displayTitle = getChapterDisplayName(chapter);
+      chapterTitleEl.textContent = displayTitle;
+      mainChapterTitle.textContent = displayTitle;
+
+      try {
+        localStorage.setItem('last_read_chapter_index', chIndex.toString());
+        if (chapter.chapter_index !== undefined) {
+          localStorage.setItem('last_read_chapter_num', chapter.chapter_index.toString());
+        }
+      } catch(e){}
+
       readerContent.innerHTML = '';
       sentences = [];
 
@@ -1524,12 +1674,9 @@
       const hasNext = novelBundle && novelBundle.bundled_chapters && nextIdx < novelBundle.bundled_chapters.length;
       if (autoChapterEnabled && hasNext) {
         ttsStatusText.textContent = "Loading next chapter...";
-        if (autoAdvanceTimeout) clearTimeout(autoAdvanceTimeout);
-        autoAdvanceTimeout = setTimeout(() => {
-          autoAdvanceTimeout = null;
-          renderChapter(nextIdx);
-          speakSentence(0);
-        }, 600);
+        // Advance immediately without setTimeout to prevent Android WebView background timer throttling when screen is off
+        renderChapter(nextIdx);
+        speakSentence(0);
       } else {
         stopTTS();
         ttsStatusText.textContent = hasNext ? "Chapter complete" : "Novel complete";
@@ -1636,6 +1783,9 @@
       currentSentenceIdx = idx;
       highlightSentence(idx);
       clearActiveWord();
+      try {
+        localStorage.setItem('last_read_sentence_index', idx.toString());
+      } catch(e){}
 
       updateProgress();
       isPlaying = true;
@@ -1774,11 +1924,14 @@
       jumpToSentence(targetIdx);
     };
 
-    function setSpeed(v) {
+    function setSpeed(v, save = true) {
       ttsSpeed = parseFloat(v);
       speedValLabel.textContent = `${ttsSpeed.toFixed(1)}x`;
       speedChipBtn.textContent = `${ttsSpeed.toFixed(1)}x`;
       speedRange.value = ttsSpeed;
+      if (save) {
+        try { localStorage.setItem('tts_speed', ttsSpeed.toString()); } catch(e){}
+      }
       if (hasAndroidTTS) window.AndroidTTS.setRate(ttsSpeed);
       if (isPlaying) speakSentence(currentSentenceIdx);
     }
@@ -1792,13 +1945,20 @@
     pitchRange.oninput = (e) => {
       ttsPitch = parseFloat(e.target.value);
       pitchValLabel.textContent = ttsPitch.toFixed(1);
+      try { localStorage.setItem('tts_pitch', ttsPitch.toString()); } catch(e){}
       if (hasAndroidTTS) window.AndroidTTS.setPitch(ttsPitch);
       if (isPlaying) speakSentence(currentSentenceIdx);
     };
 
-    autoscrollToggle.onchange = (e) => autoScrollEnabled = e.target.checked;
+    autoscrollToggle.onchange = (e) => {
+      autoScrollEnabled = e.target.checked;
+      try { localStorage.setItem('autoscroll_enabled', autoScrollEnabled.toString()); } catch(e){}
+    };
     if (autochapterToggle) {
-      autochapterToggle.onchange = (e) => autoChapterEnabled = e.target.checked;
+      autochapterToggle.onchange = (e) => {
+        autoChapterEnabled = e.target.checked;
+        try { localStorage.setItem('autochapter_enabled', autoChapterEnabled.toString()); } catch(e){}
+      };
     }
 
     // Robust Mutual-Exclusion Drawer Manager
@@ -1858,6 +2018,11 @@
         document.querySelectorAll('.theme-pill[data-set-theme]').forEach(x => x.classList.remove('active'));
         p.classList.add('active');
         document.body.setAttribute('data-theme', p.dataset.setTheme);
+        try {
+          localStorage.setItem('reader_theme', p.dataset.setTheme);
+          localStorage.removeItem('reader_bg_color');
+          localStorage.removeItem('reader_text_color');
+        } catch(e){}
       };
     });
 
@@ -1865,9 +2030,17 @@
       document.body.removeAttribute('data-theme');
       document.body.style.setProperty('--bg-color', e.target.value);
       document.body.style.setProperty('--dock-bg', e.target.value);
+      try {
+        localStorage.removeItem('reader_theme');
+        localStorage.setItem('reader_bg_color', e.target.value);
+      } catch(e){}
     };
     document.getElementById('text-color-picker').oninput = (e) => {
       document.body.style.setProperty('--text-color', e.target.value);
+      try {
+        localStorage.removeItem('reader_theme');
+        localStorage.setItem('reader_text_color', e.target.value);
+      } catch(e){}
     };
 
     // Typography
@@ -1876,36 +2049,43 @@
         document.querySelectorAll('.font-option').forEach(x => x.classList.remove('active'));
         fo.classList.add('active');
         document.documentElement.style.setProperty('--font-family', fo.dataset.font);
+        try { localStorage.setItem('reader_font_family', fo.dataset.font); } catch(e){}
       };
     });
 
     fontSizeRange.oninput = (e) => {
       fontSizeLabel.textContent = `${e.target.value}px`;
       document.documentElement.style.setProperty('--font-size', `${e.target.value}px`);
+      try { localStorage.setItem('reader_font_size', e.target.value); } catch(e){}
     };
     lineHeightRange.oninput = (e) => {
       lineHeightLabel.textContent = e.target.value;
       document.documentElement.style.setProperty('--line-height', e.target.value);
+      try { localStorage.setItem('reader_line_height', e.target.value); } catch(e){}
     };
 
     // Voices Management & Dynamic Switching
     function initVoices() {
+      const savedVoice = localStorage.getItem('tts_voice_name') || '';
       if (hasAndroidTTS && window.AndroidTTS.getVoicesJson) {
         try {
           const vList = JSON.parse(window.AndroidTTS.getVoicesJson());
           if (vList && vList.length > 0) {
-            const currentVal = voiceSelect.value;
             voiceSelect.innerHTML = '<option value="">System Default Voice</option>';
             vList.forEach(v => {
               const opt = document.createElement('option');
               opt.value = v.name;
               opt.textContent = `${v.name} • ${v.locale}`;
-              if (v.name === currentVal) opt.selected = true;
+              if (savedVoice && v.name === savedVoice) opt.selected = true;
               voiceSelect.appendChild(opt);
             });
+            if (savedVoice && window.AndroidTTS.setVoice) {
+              window.AndroidTTS.setVoice(savedVoice);
+            }
             voiceSelect.onchange = () => {
               const chosen = voiceSelect.value;
               console.log("Switching Android native voice to:", chosen);
+              try { localStorage.setItem('tts_voice_name', chosen); } catch(e){}
               if (window.AndroidTTS.setVoice) {
                 window.AndroidTTS.setVoice(chosen);
               }
@@ -1921,16 +2101,18 @@
       } else if ('speechSynthesis' in window) {
         availableBrowserVoices = window.speechSynthesis.getVoices();
         if (availableBrowserVoices.length > 0) {
-          const currentIdx = voiceSelect.selectedIndex;
           voiceSelect.innerHTML = '';
           availableBrowserVoices.forEach((v, i) => {
             const opt = document.createElement('option');
             opt.value = i;
             opt.textContent = `${v.name} (${v.lang})`;
+            if (savedVoice && v.name === savedVoice) {
+              opt.selected = true;
+              selectedVoice = v;
+            }
             voiceSelect.appendChild(opt);
           });
           if (!selectedVoice) {
-            // Find English voice by default
             const enIdx = availableBrowserVoices.findIndex(v => v.lang.startsWith('en'));
             if (enIdx !== -1) {
               voiceSelect.selectedIndex = enIdx;
@@ -1942,6 +2124,9 @@
           voiceSelect.onchange = () => {
             const idx = parseInt(voiceSelect.value, 10);
             selectedVoice = availableBrowserVoices[idx] || null;
+            if (selectedVoice) {
+              try { localStorage.setItem('tts_voice_name', selectedVoice.name); } catch(e){}
+            }
             console.log("Switching browser voice to:", selectedVoice ? selectedVoice.name : "null");
             // Immediately re-speak current sentence with the new voice
             if (isPlaying) {
@@ -1949,6 +2134,82 @@
             }
           };
         }
+      }
+    }
+
+    // Restore all saved user preferences across sessions
+    function restoreSavedSettings() {
+      try {
+        // 1. Theme
+        const savedTheme = localStorage.getItem('reader_theme');
+        if (savedTheme) {
+          document.body.setAttribute('data-theme', savedTheme);
+          document.querySelectorAll('.theme-pill[data-set-theme]').forEach(x => {
+            x.classList.toggle('active', x.dataset.setTheme === savedTheme);
+          });
+        }
+        const savedBg = localStorage.getItem('reader_bg_color');
+        const savedText = localStorage.getItem('reader_text_color');
+        if (savedBg && !savedTheme) {
+          document.body.removeAttribute('data-theme');
+          document.body.style.setProperty('--bg-color', savedBg);
+          document.body.style.setProperty('--dock-bg', savedBg);
+          const bgPicker = document.getElementById('bg-color-picker');
+          if (bgPicker) bgPicker.value = savedBg;
+        }
+        if (savedText && !savedTheme) {
+          document.body.style.setProperty('--text-color', savedText);
+          const textPicker = document.getElementById('text-color-picker');
+          if (textPicker) textPicker.value = savedText;
+        }
+
+        // 2. Speed & Pitch
+        const savedSpeed = localStorage.getItem('tts_speed');
+        if (savedSpeed) {
+          setSpeed(savedSpeed, false);
+        }
+        const savedPitch = localStorage.getItem('tts_pitch');
+        if (savedPitch) {
+          ttsPitch = parseFloat(savedPitch);
+          pitchRange.value = ttsPitch;
+          pitchValLabel.textContent = ttsPitch.toFixed(1);
+          if (hasAndroidTTS && window.AndroidTTS.setPitch) window.AndroidTTS.setPitch(ttsPitch);
+        }
+
+        // 3. Typography
+        const savedFontSize = localStorage.getItem('reader_font_size');
+        if (savedFontSize) {
+          fontSizeRange.value = savedFontSize;
+          fontSizeLabel.textContent = `${savedFontSize}px`;
+          document.documentElement.style.setProperty('--font-size', `${savedFontSize}px`);
+        }
+        const savedLineHeight = localStorage.getItem('reader_line_height');
+        if (savedLineHeight) {
+          lineHeightRange.value = savedLineHeight;
+          lineHeightLabel.textContent = savedLineHeight;
+          document.documentElement.style.setProperty('--line-height', savedLineHeight);
+        }
+        const savedFont = localStorage.getItem('reader_font_family');
+        if (savedFont) {
+          document.documentElement.style.setProperty('--font-family', savedFont);
+          document.querySelectorAll('.font-option').forEach(x => {
+            x.classList.toggle('active', x.dataset.font === savedFont);
+          });
+        }
+
+        // 4. Toggles
+        const savedAutoScroll = localStorage.getItem('autoscroll_enabled');
+        if (savedAutoScroll !== null) {
+          autoScrollEnabled = savedAutoScroll === 'true';
+          autoscrollToggle.checked = autoScrollEnabled;
+        }
+        const savedAutoChapter = localStorage.getItem('autochapter_enabled');
+        if (savedAutoChapter !== null && autochapterToggle) {
+          autoChapterEnabled = savedAutoChapter === 'true';
+          autochapterToggle.checked = autoChapterEnabled;
+        }
+      } catch(e) {
+        console.error("Error restoring settings:", e);
       }
     }
 
@@ -1961,6 +2222,9 @@
     if ('speechSynthesis' in window) {
       window.speechSynthesis.onvoiceschanged = initVoices;
     }
+
+    // Restore settings immediately on load
+    restoreSavedSettings();
 
     // Initial load + retries for asynchronous native engines
     loadNovelData().then(initVoices);
