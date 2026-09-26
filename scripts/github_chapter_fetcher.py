@@ -111,8 +111,8 @@ def fetch_single_chapter_with_retry(scraper, ch_num: int, ch_meta: dict, max_ret
                 
     raise RuntimeError(f"Failed to fetch Chapter {ch_num} after trying all candidate URLs. Last error: {last_err}")
 
-def download_bundle(start_ch: int, end_ch: int, output_dir: str = "data"):
-    """Downloads an arbitrary bundle of chapters from start_ch to end_ch with 0 missing chapters guarantee."""
+def download_bundle(start_ch: int, end_ch: int, output_dir: str = "data", chunk_size: int = 50):
+    """Downloads chapters from start_ch to end_ch, automatically chunking into 50-chapter bundles with 0 missing chapters guarantee."""
     if start_ch > end_ch:
         start_ch, end_ch = end_ch, start_ch
 
@@ -121,83 +121,100 @@ def download_bundle(start_ch: int, end_ch: int, output_dir: str = "data"):
     scraper = NovelScraper()
 
     total_expected = end_ch - start_ch + 1
-    bundled_chapters = []
     print(f"\n=======================================================")
     print(f"  Downloading Chapter Range: {start_ch} to {end_ch} ({total_expected} Chapters)")
+    print(f"  Partitioning into standard bundles of up to {chunk_size} chapters")
     print(f"=======================================================\n")
     
-    for ch_num in range(start_ch, end_ch + 1):
-        if ch_num in chapter_map:
-            ch_meta = chapter_map[ch_num]
-        else:
-            print(f"Notice: Chapter {ch_num} not in archive index. Using direct fallback URL...")
-            ch_meta = {
-                "chapter_number": ch_num,
-                "title": f"Chapter {ch_num}",
-                "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
-            }
-            
-        print(f"Fetching Chapter {ch_num} ({ch_num - start_ch + 1}/{total_expected}): {ch_meta['title']}...")
+    # Calculate slices
+    slices = []
+    curr = start_ch
+    while curr <= end_ch:
+        slice_end = min(curr + chunk_size - 1, end_ch)
+        slices.append((curr, slice_end))
+        curr = slice_end + 1
+
+    saved_bundle_paths = []
+    
+    for slice_idx, (s_ch, e_ch) in enumerate(slices, 1):
+        slice_count = e_ch - s_ch + 1
+        print(f"\n--- [Bundle {slice_idx}/{len(slices)}] Processing Chapters {s_ch} to {e_ch} ({slice_count} chapters) ---")
         
-        try:
-            chapter_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta)
-            bundled_chapters.append(chapter_obj)
-            time.sleep(0.25)  # Polite pacing
-        except Exception as e:
-            print(f"  [ERROR] Failed to fetch Chapter {ch_num}: {e}")
-
-    # Zero Missing Chapters Verification & Rescue Pass
-    fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
-    missing = [ch for ch in range(start_ch, end_ch + 1) if ch not in fetched_indexes]
-    
-    if missing:
-        print(f"\n[WARNING] Missing {len(missing)} chapters after initial pass: {missing}. Initiating Rescue Pass...")
-        for ch_num in list(missing):
-            ch_meta = chapter_map.get(ch_num, {
-                "chapter_number": ch_num,
-                "title": f"Chapter {ch_num}",
-                "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
-            })
-            try:
-                rescued_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta, max_retries=5)
-                bundled_chapters.append(rescued_obj)
-                missing.remove(ch_num)
-                print(f"  [RESCUED] Successfully recovered Chapter {ch_num}!")
-            except Exception as e:
-                print(f"  [FAILED] Rescue failed for Chapter {ch_num}: {e}")
+        bundled_chapters = []
+        for ch_num in range(s_ch, e_ch + 1):
+            if ch_num in chapter_map:
+                ch_meta = chapter_map[ch_num]
+            else:
+                print(f"Notice: Chapter {ch_num} not in archive index. Using direct fallback URL...")
+                ch_meta = {
+                    "chapter_number": ch_num,
+                    "title": f"Chapter {ch_num}",
+                    "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
+                }
                 
-    # Final strict verification
-    fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
-    final_missing = [ch for ch in range(start_ch, end_ch + 1) if ch not in fetched_indexes]
-    
-    if final_missing:
-        error_msg = f"CRITICAL: Bundle incomplete! Missing chapters: {final_missing}. Aborting save to maintain data integrity."
-        print(f"\n[ERROR] {error_msg}\n")
-        raise RuntimeError(error_msg)
+            print(f"Fetching Chapter {ch_num} ({ch_num - s_ch + 1}/{slice_count}): {ch_meta['title']}...")
+            
+            try:
+                chapter_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta)
+                bundled_chapters.append(chapter_obj)
+                time.sleep(0.2)  # Polite pacing
+            except Exception as e:
+                print(f"  [ERROR] Failed to fetch Chapter {ch_num}: {e}")
 
-    # Strictly sort chapters by chapter_index
-    bundled_chapters.sort(key=lambda c: c['chapter_index'])
+        # Zero Missing Chapters Verification & Rescue Pass for this slice
+        fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
+        missing = [ch for ch in range(s_ch, e_ch + 1) if ch not in fetched_indexes]
+        
+        if missing:
+            print(f"\n[WARNING] Missing {len(missing)} chapters in slice {s_ch}-{e_ch}: {missing}. Initiating Rescue Pass...")
+            for ch_num in list(missing):
+                ch_meta = chapter_map.get(ch_num, {
+                    "chapter_number": ch_num,
+                    "title": f"Chapter {ch_num}",
+                    "url": f"https://novelping.com/book/{NOVEL_ID}/chapter-{ch_num}"
+                })
+                try:
+                    rescued_obj = fetch_single_chapter_with_retry(scraper, ch_num, ch_meta, max_retries=5)
+                    bundled_chapters.append(rescued_obj)
+                    missing.remove(ch_num)
+                    print(f"  [RESCUED] Successfully recovered Chapter {ch_num}!")
+                except Exception as e:
+                    print(f"  [FAILED] Rescue failed for Chapter {ch_num}: {e}")
+                    
+        # Final strict verification for this slice
+        fetched_indexes = set(c['chapter_index'] for c in bundled_chapters)
+        final_missing = [ch for ch in range(s_ch, e_ch + 1) if ch not in fetched_indexes]
+        
+        if final_missing:
+            error_msg = f"CRITICAL: Slice {s_ch}-{e_ch} incomplete! Missing chapters: {final_missing}. Aborting save."
+            print(f"\n[ERROR] {error_msg}\n")
+            raise RuntimeError(error_msg)
 
-    bundle_filename = f"chapters_{start_ch}_{end_ch}.json"
-    bundle_path = os.path.join(output_dir, bundle_filename)
-    
-    bundle_payload = {
-        "novel_id": NOVEL_ID,
-        "start_chapter": start_ch,
-        "end_chapter": end_ch,
-        "total_chapters": len(bundled_chapters),
-        "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
-        "chapters": bundled_chapters
-    }
+        # Strictly sort chapters by chapter_index
+        bundled_chapters.sort(key=lambda c: c['chapter_index'])
 
-    with open(bundle_path, "w", encoding="utf-8") as f:
-        json.dump(bundle_payload, f, indent=2, ensure_ascii=False)
+        bundle_filename = f"chapters_{s_ch}_{e_ch}.json"
+        bundle_path = os.path.join(output_dir, bundle_filename)
+        
+        bundle_payload = {
+            "novel_id": NOVEL_ID,
+            "start_chapter": s_ch,
+            "end_chapter": e_ch,
+            "total_chapters": len(bundled_chapters),
+            "created_at": time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime()),
+            "chapters": bundled_chapters
+        }
 
-    print(f"\n[SUCCESS] Successfully saved complete bundle ({len(bundled_chapters)}/{total_expected} chapters) to {bundle_path}!")
+        with open(bundle_path, "w", encoding="utf-8") as f:
+            json.dump(bundle_payload, f, indent=2, ensure_ascii=False)
 
-    # Update index.json manifest
-    update_manifest(output_dir, bundle_filename, start_ch, end_ch, len(bundled_chapters))
-    return bundle_path
+        print(f"\n[SUCCESS] Saved slice bundle ({len(bundled_chapters)}/{slice_count} chapters) to {bundle_path}!")
+
+        # Update index.json manifest immediately
+        update_manifest(output_dir, bundle_filename, s_ch, e_ch, len(bundled_chapters))
+        saved_bundle_paths.append(bundle_path)
+
+    return saved_bundle_paths
 
 def update_manifest(output_dir: str, bundle_filename: str, start_ch: int, end_ch: int, count: int):
     manifest_path = os.path.join(output_dir, "index.json")

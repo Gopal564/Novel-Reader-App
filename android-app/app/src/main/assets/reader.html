@@ -630,6 +630,27 @@
       background: #059669 !important;
       color: #fff !important;
     }
+    .btn-delete-bundle {
+      background: rgba(239, 68, 68, 0.12);
+      color: #dc2626;
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      padding: 9px 12px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 700;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+      transition: all 0.15s ease;
+      touch-action: manipulation;
+    }
+    .btn-delete-bundle:active {
+      background: #dc2626;
+      color: #fff;
+      transform: scale(0.95);
+    }
   </style>
 </head>
 <body data-theme="sepia">
@@ -1021,12 +1042,14 @@
       cloudChaptersView.style.display = 'none';
     };
 
-    tabBtnCloud.onclick = () => {
+    tabBtnCloud.onclick = async () => {
       tabBtnCloud.classList.add('active');
       tabBtnLocal.classList.remove('active');
       localChaptersView.style.display = 'none';
       cloudChaptersView.style.display = 'block';
       updateTokenUI();
+      renderCloudBundles();
+      await loadCloudManifest();
       renderCloudBundles();
     };
 
@@ -1140,6 +1163,7 @@
         }
 
         renderChaptersList();
+        loadCloudManifest().then(() => renderCloudBundles());
       }
     }
 
@@ -1270,12 +1294,115 @@
       });
     }
 
-    // Render Cloud Bundles UI (1780 to 3000 in 50-chapter bundles)
+    // Cloud Manifest Cache
+    let cloudManifestBundles = [];
+
+    async function loadCloudManifest() {
+      const defaultBase = 'https://raw.githubusercontent.com/Gopal564/Novel-Reader-App/main/data/';
+      let baseUrl = (document.getElementById('cloud-source-url').value || '').trim();
+      if (!baseUrl || baseUrl === 'data/' || baseUrl === 'data') {
+        baseUrl = defaultBase;
+      }
+      const manifestUrl = `${baseUrl.endsWith('/') ? baseUrl : baseUrl + '/'}index.json?t=${Date.now()}`;
+      try {
+        let text = '';
+        if (hasAndroidTTS && window.AndroidTTS && window.AndroidTTS.downloadUrl) {
+          const res = window.AndroidTTS.downloadUrl(manifestUrl);
+          if (!res.startsWith("HTTP_ERROR:") && !res.startsWith("EXCEPTION:")) {
+            text = res;
+          }
+        } else {
+          const res = await fetch(manifestUrl);
+          if (res.ok) text = await res.text();
+        }
+        if (text) {
+          const data = JSON.parse(text);
+          if (data && Array.isArray(data.bundles)) {
+            cloudManifestBundles = data.bundles;
+            try {
+              localStorage.setItem('cached_cloud_manifest', JSON.stringify(data.bundles));
+            } catch (_) {}
+          }
+        }
+      } catch (e) {
+        console.warn("Could not load cloud manifest:", e);
+      }
+      if (!cloudManifestBundles.length) {
+        try {
+          cloudManifestBundles = JSON.parse(localStorage.getItem('cached_cloud_manifest') || '[]');
+        } catch (_) {}
+      }
+    }
+
+    // In-app Bundle Deletion to free device storage
+    function deleteBundle(start, end) {
+      const confirmed = window.confirm(`Delete Chapters ${start}–${end} from your offline device storage?\n\nYou can re-download this bundle anytime from GitHub.`);
+      if (!confirmed) return;
+
+      // 1. Remove from downloaded_chapters in localStorage
+      let stored = [];
+      try {
+        stored = JSON.parse(localStorage.getItem('downloaded_chapters') || '[]');
+      } catch (e) {
+        stored = [];
+      }
+      stored = stored.filter(c => c.chapter_index < start || c.chapter_index > end);
+      localStorage.setItem('downloaded_chapters', JSON.stringify(stored));
+
+      // 2. Remove from active novelBundle.bundled_chapters
+      if (novelBundle && Array.isArray(novelBundle.bundled_chapters)) {
+        novelBundle.bundled_chapters = novelBundle.bundled_chapters.filter(c => c.chapter_index < start || c.chapter_index > end);
+        if (novelBundle.bundled_chapters.length === 0) {
+          novelBundle.bundled_chapters = [{
+            chapter_index: 1,
+            title: "Chapter 1",
+            paragraphs: ["All downloaded chapters have been removed. Open Download Bundles to install chapters."],
+            sentences: [{ id: 0, text: "All downloaded chapters have been removed. Open Download Bundles to install chapters." }]
+          }];
+        }
+      }
+
+      // 3. Clamp current chapter index if out of range
+      if (currentChapterIndex >= novelBundle.bundled_chapters.length) {
+        currentChapterIndex = Math.max(0, novelBundle.bundled_chapters.length - 1);
+      }
+
+      // 4. Update UI
+      renderChaptersList();
+      renderCloudBundles();
+      if (novelBundle.bundled_chapters.length > 0) {
+        renderChapter(currentChapterIndex);
+      }
+
+      // 5. Notify user
+      const statusBanner = document.getElementById('cloud-status-banner');
+      if (statusBanner) {
+        statusBanner.style.display = 'block';
+        statusBanner.style.background = 'rgba(16, 185, 129, 0.15)';
+        statusBanner.style.color = '#059669';
+        statusBanner.innerHTML = `🗑️ <strong>Chapters ${start}–${end} deleted from device.</strong> Local storage space freed up!`;
+        setTimeout(() => {
+          if (statusBanner) statusBanner.style.display = 'none';
+        }, 3500);
+      }
+    }
+
+    // Render Cloud Bundles UI (1780 to 5050 in 50-chapter bundles)
     function renderCloudBundles() {
       bundlesListContainer.innerHTML = '';
+      
+      // Determine max chapter to display: at least 5050, or higher if manifest has higher chapters
+      let maxChapter = 5050;
+      if (cloudManifestBundles && cloudManifestBundles.length > 0) {
+        const highestInManifest = Math.max(...cloudManifestBundles.map(b => b.end_chapter || 0));
+        if (highestInManifest > maxChapter) {
+          maxChapter = Math.ceil(highestInManifest / 50) * 50;
+        }
+      }
+
       const presetBundles = [];
-      for (let s = 1780; s <= 2980; s += 50) {
-        const e = Math.min(s + 49, 3000);
+      for (let s = 1780; s <= maxChapter; s += 50) {
+        const e = Math.min(s + 49, maxChapter);
         presetBundles.push({
           start: s,
           end: e,
@@ -1287,26 +1414,50 @@
         const card = document.createElement('div');
         card.className = 'download-bundle-card';
 
-        // Check if bundle is already present in library
-        const isPresent = novelBundle && novelBundle.bundled_chapters &&
+        // Check if bundle is present in local library
+        const isPresentLocal = novelBundle && novelBundle.bundled_chapters &&
           novelBundle.bundled_chapters.some(c => c.chapter_index >= b.start && c.chapter_index <= b.end);
 
-        const btnText = isPresent ? '✅ Read' : '⬇ Download';
-        const btnClass = isPresent ? 'btn-download installed' : 'btn-download';
+        // Check if bundle exists on GitHub (from manifest or known 1780-5000 repo range)
+        const isAvailableCloud = cloudManifestBundles.some(mb => 
+          (mb.start_chapter <= b.start && mb.end_chapter >= b.end) ||
+          (mb.bundle_file === `chapters_${b.start}_${b.end}.json`)
+        ) || (b.start >= 1780 && b.end <= 5000);
+
+        let actionHtml = '';
+        let subText = `GitHub Action Bundle • Ch. ${b.start}-${b.end}`;
+
+        if (isPresentLocal) {
+          subText += ' • <span style="color:#059669; font-weight:700;">In Library</span>';
+          actionHtml = `
+            <div style="display:flex; gap:6px; align-items:center; flex-shrink:0;">
+              <button class="btn-download installed" data-start="${b.start}" data-end="${b.end}">✅ Read</button>
+              <button class="btn-delete-bundle" data-start="${b.start}" data-end="${b.end}" title="Delete from device storage">🗑️</button>
+            </div>
+          `;
+        } else if (isAvailableCloud) {
+          subText += ' • <span style="color:var(--accent-color); font-weight:600;">☁️ Ready on GitHub</span>';
+          actionHtml = `<button class="btn-download" data-start="${b.start}" data-end="${b.end}">⬇ Download</button>`;
+        } else {
+          subText += ' • <span style="opacity:0.7;">⚡ Not on GitHub yet</span>';
+          actionHtml = `<button class="btn-download" data-start="${b.start}" data-end="${b.end}" style="background: rgba(120, 119, 198, 0.15); color: var(--accent-color); border: 1px dashed var(--accent-color);">⚡ Generate</button>`;
+        }
 
         card.innerHTML = `
-          <div>
+          <div style="flex:1; min-width:0;">
             <div class="download-bundle-title">${b.title}</div>
-            <div class="download-bundle-sub">GitHub Action Bundle • Ch. ${b.start}-${b.end} ${isPresent ? '• <span style="color:#059669; font-weight:700;">In Library</span>' : ''}</div>
+            <div class="download-bundle-sub">${subText}</div>
           </div>
-          <button class="${btnClass}" data-start="${b.start}" data-end="${b.end}">${btnText}</button>
+          ${actionHtml}
         `;
 
-        const btn = card.querySelector('.btn-download');
+        const readBtn = card.querySelector('.btn-download.installed');
+        const deleteBtn = card.querySelector('.btn-delete-bundle');
+        const dlBtn = card.querySelector('.btn-download:not(.installed)');
 
-        const handleClick = (e) => {
-          e.stopPropagation();
-          if (isPresent) {
+        if (readBtn) {
+          readBtn.onclick = (e) => {
+            e.stopPropagation();
             const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index >= b.start);
             if (targetChIdx !== -1) {
               window.closeAllDrawers();
@@ -1314,13 +1465,28 @@
             } else {
               tabBtnLocal.click();
             }
-          } else {
-            pullBundle(b.start, b.end, btn);
-          }
+          };
+        }
+
+        if (deleteBtn) {
+          deleteBtn.onclick = (e) => {
+            e.stopPropagation();
+            deleteBundle(b.start, b.end);
+          };
+        }
+
+        if (dlBtn) {
+          dlBtn.onclick = (e) => {
+            e.stopPropagation();
+            pullBundle(b.start, b.end, dlBtn);
+          };
+        }
+
+        card.onclick = (e) => {
+          if (isPresentLocal && readBtn) readBtn.click();
+          else if (dlBtn) dlBtn.click();
         };
 
-        btn.onclick = handleClick;
-        card.onclick = handleClick;
         bundlesListContainer.appendChild(card);
       });
     }
@@ -1415,7 +1581,7 @@
       }
 
       if (missingLocally.length === 0) {
-        updateBanner(`✅ Chapters ${start}–${end} are already in your Offline Library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
+        updateBanner(`✅ Chapters ${start}–${end} are already installed in your Offline Library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
         if (btnEl) {
           btnEl.disabled = false;
           btnEl.textContent = '✅ In Library';
@@ -1431,9 +1597,14 @@
         return;
       }
 
-      updateBanner(`⏳ Checking cloud repository for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
+      updateBanner(`⏳ Checking GitHub repository for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
 
-      // 2. Try fetching the exact bundle file: chapters_{start}_{end}.json
+      // Ensure cloud manifest is loaded
+      if (!cloudManifestBundles.length) {
+        await loadCloudManifest();
+      }
+
+      // 2. Try fetching exact bundle file if requested range matches an existing bundle
       const exactFileName = `chapters_${start}_${end}.json`;
       const initialFetch = await fetchJsonFromRepo(exactFileName);
       if (initialFetch.ok) {
@@ -1442,11 +1613,6 @@
           if (data && data.chapters && data.chapters.length > 0) {
             integrateFetchedChapters(data.chapters);
             updateBanner(`✅ Successfully imported ${data.chapters.length} chapters (${start}–${end}) into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
-            if (btnEl) {
-              btnEl.textContent = '✅ Read';
-              btnEl.className = 'btn-download installed';
-              btnEl.disabled = false;
-            }
             renderCloudBundles();
             const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
             setTimeout(() => {
@@ -1461,48 +1627,69 @@
         }
       }
 
-      // 3. If exact file not found, check if an existing repo bundle covers [start..end]
-      const prebuiltRanges = [
-        { s: 1780, e: 1829, f: 'chapters_1780_1829.json' },
-        { s: 1830, e: 1879, f: 'chapters_1830_1879.json' },
-        { s: 1880, e: 1929, f: 'chapters_1880_1929.json' },
-        { s: 1906, e: 1908, f: 'chapters_1906_1908.json' },
-        { s: 1930, e: 1979, f: 'chapters_1930_1979.json' },
-        { s: 1980, e: 2029, f: 'chapters_1980_2029.json' },
-        { s: 2030, e: 2079, f: 'chapters_2030_2079.json' }
-      ];
-
-      const enclosingBundle = prebuiltRanges.find(b => b.s <= start && b.e >= end);
-      if (enclosingBundle) {
-        updateBanner(`⏳ Downloading bundle ${enclosingBundle.s}–${enclosingBundle.e} containing Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
-        const bundleFetch = await fetchJsonFromRepo(enclosingBundle.f);
-        if (bundleFetch.ok) {
-          try {
-            const data = JSON.parse(bundleFetch.text);
-            if (data && data.chapters && data.chapters.length > 0) {
-              integrateFetchedChapters(data.chapters);
-              updateBanner(`✅ Imported Chapters ${start}–${end} (from bundle ${enclosingBundle.s}–${enclosingBundle.e}) into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
-              if (btnEl) {
-                btnEl.textContent = '✅ Read';
-                btnEl.className = 'btn-download installed';
-                btnEl.disabled = false;
-              }
-              renderCloudBundles();
-              const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
-              setTimeout(() => {
-                tabBtnLocal.click();
-                if (targetChIdx !== -1) renderChapter(targetChIdx);
-                window.closeAllDrawers();
-              }, 800);
-              return;
-            }
-          } catch(e) {
-            console.error("Bundle parse error:", e);
+      // 3. Find any and all bundles in cloudManifestBundles (or standard 50-grid) that overlap with [start..end]
+      let candidateBundles = [];
+      if (cloudManifestBundles && cloudManifestBundles.length > 0) {
+        candidateBundles = cloudManifestBundles.filter(b => b.start_chapter <= end && b.end_chapter >= start);
+      }
+      
+      // Fallback: If manifest wasn't reachable, check standard 50-grid from 1780 to 5000
+      if (candidateBundles.length === 0 && start >= 1780 && end <= 5000) {
+        for (let s = 1780; s <= 5000; s += 50) {
+          const e = Math.min(s + 49, 5000);
+          if (s <= end && e >= start) {
+            candidateBundles.push({
+              bundle_file: `chapters_${s}_${e}.json`,
+              start_chapter: s,
+              end_chapter: e
+            });
           }
         }
       }
 
-      // 4. Bundle is not yet generated on GitHub (404)
+      if (candidateBundles.length > 0) {
+        updateBanner(`⏳ Downloading ${candidateBundles.length} bundle(s) covering Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.12)', 'var(--accent-color)');
+        let importedAny = false;
+
+        for (const mb of candidateBundles) {
+          if (btnEl) btnEl.textContent = `⏳ Loading ${mb.start_chapter}-${mb.end_chapter}...`;
+          const bundleFetch = await fetchJsonFromRepo(mb.bundle_file);
+          if (bundleFetch.ok) {
+            try {
+              const data = JSON.parse(bundleFetch.text);
+              if (data && data.chapters && data.chapters.length > 0) {
+                integrateFetchedChapters(data.chapters);
+                importedAny = true;
+              }
+            } catch(e) {
+              console.error(`Error parsing ${mb.bundle_file}:`, e);
+            }
+          }
+        }
+
+        if (importedAny) {
+          const updatedLocal = novelBundle?.bundled_chapters || [];
+          const updatedIndexes = new Set(updatedLocal.map(c => c.chapter_index));
+          const stillMissing = [];
+          for (let i = start; i <= end; i++) {
+            if (!updatedIndexes.has(i)) stillMissing.push(i);
+          }
+
+          if (stillMissing.length === 0) {
+            updateBanner(`✅ Successfully imported Chapters ${start}–${end} into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
+            renderCloudBundles();
+            const targetChIdx = updatedLocal.findIndex(c => c.chapter_index === start);
+            setTimeout(() => {
+              tabBtnLocal.click();
+              if (targetChIdx !== -1) renderChapter(targetChIdx);
+              window.closeAllDrawers();
+            }, 800);
+            return;
+          }
+        }
+      }
+
+      // 4. Bundle is genuinely not yet generated on GitHub.
       const ghToken = (localStorage.getItem('github_token') || '').trim();
 
       if (!ghToken) {
@@ -1528,7 +1715,7 @@
         return;
       }
 
-      // 5. Launch GitHub Action Runner in cloud!
+      // 5. Launch GitHub Action Runner in cloud for missing chapters
       try {
         updateBanner(`🚀 Dispatching GitHub Action runner for Chapters ${start}–${end}...`, 'rgba(79, 70, 229, 0.15)', 'var(--accent-color)');
         if (btnEl) btnEl.textContent = '🚀 Launching...';
@@ -1558,31 +1745,48 @@
             'var(--accent-color)'
           );
 
+          // Refresh cloud manifest during polling
+          await loadCloudManifest();
+
+          // Check if exact file or any overlapping chunk has appeared
           const pollFetch = await fetchJsonFromRepo(exactFileName);
+          let gotData = false;
           if (pollFetch.ok) {
-            clearInterval(pollTimer);
             try {
               const data = JSON.parse(pollFetch.text);
               if (data && data.chapters && data.chapters.length > 0) {
                 integrateFetchedChapters(data.chapters);
-                updateBanner(`✅ Success! Runner finished and imported ${data.chapters.length} chapters (${start}–${end}) into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
-                if (btnEl) {
-                  btnEl.textContent = '✅ Read';
-                  btnEl.className = 'btn-download installed';
-                  btnEl.disabled = false;
-                }
-                renderCloudBundles();
-                const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
-                setTimeout(() => {
-                  tabBtnLocal.click();
-                  if (targetChIdx !== -1) renderChapter(targetChIdx);
-                  window.closeAllDrawers();
-                }, 800);
-                return;
+                gotData = true;
               }
-            } catch(e) {
-              console.error("Poll parse error:", e);
+            } catch(e) {}
+          } else {
+            // Check newly appeared overlapping chunks
+            const freshOverlaps = cloudManifestBundles.filter(b => b.start_chapter <= end && b.end_chapter >= start);
+            for (const mb of freshOverlaps) {
+              const chunkFetch = await fetchJsonFromRepo(mb.bundle_file);
+              if (chunkFetch.ok) {
+                try {
+                  const data = JSON.parse(chunkFetch.text);
+                  if (data && data.chapters && data.chapters.length > 0) {
+                    integrateFetchedChapters(data.chapters);
+                    gotData = true;
+                  }
+                } catch(e) {}
+              }
             }
+          }
+
+          if (gotData) {
+            clearInterval(pollTimer);
+            updateBanner(`✅ Success! Runner finished and imported chapters (${start}–${end}) into library!`, 'rgba(16, 185, 129, 0.15)', '#059669');
+            renderCloudBundles();
+            const targetChIdx = novelBundle.bundled_chapters.findIndex(c => c.chapter_index === start);
+            setTimeout(() => {
+              tabBtnLocal.click();
+              if (targetChIdx !== -1) renderChapter(targetChIdx);
+              window.closeAllDrawers();
+            }, 800);
+            return;
           }
 
           if (elapsed >= maxWait) {
